@@ -1,6 +1,6 @@
 import dns from "dns/promises";
 
-/* ---------- CSV PARSER (ROBUST, QUOTED SAFE) ---------- */
+/* ---------- CSV PARSER (ROBUST) ---------- */
 function parseCSV(text) {
   const rows = [];
   let row = [];
@@ -79,7 +79,7 @@ export async function handler(event) {
     const CLOUDFLARE_CSV =
       "https://docs.google.com/spreadsheets/d/1AtmjzUR_iGHCUE_tYLMAM9BP8Zx37nGiU0g632f2594/export?format=csv&gid=281551120";
 
-    /* FETCH CSVs (Node 18 native fetch) */
+    /* FETCH CSVs */
     const [cpRes, cfRes] = await Promise.all([
       fetch(CPANEL_CSV),
       fetch(CLOUDFLARE_CSV)
@@ -88,14 +88,12 @@ export async function handler(event) {
     const cpanelList = parseCSV(await cpRes.text());
     const cfList = parseCSV(await cfRes.text());
 
-    /* Normalize Cloudflare CSV entries */
+    /* Normalize Cloudflare CSV entries (NEW FORMAT) */
     const cfEntries = cfList.map(r => ({
       email: r["Cloudflare Email"],
-      ns: r.Nameservers
-        .split(",")
-        .map(n => n.trim().toLowerCase())
-        .sort()
-    }));
+      ns1: (r["Nameserver 1"] || "").toLowerCase().replace(/\.$/, "").trim(),
+      ns2: (r["Nameserver 2"] || "").toLowerCase().replace(/\.$/, "").trim()
+    })).filter(r => r.ns1 && r.ns2);
 
     const results = [];
 
@@ -111,7 +109,6 @@ export async function handler(event) {
         const a = await dns.resolve4(domain);
         ip = a.find(i => i.includes(".")) || a[0];
 
-        // Detect Cloudflare IP ranges
         const isCloudflareIP =
           ip.startsWith("104.") ||
           ip.startsWith("172.6") ||
@@ -132,23 +129,20 @@ export async function handler(event) {
       /* ---------- NS RECORD ---------- */
       try {
         const ns = await dns.resolveNs(domain);
-        nameservers = ns.map(n => n.toLowerCase()).sort();
+        nameservers = ns
+          .map(n => n.toLowerCase().replace(/\.$/, "").trim())
+          .sort();
 
-        /* Hybrid Cloudflare detection */
-        const isCloudflareNS = nameservers.every(n =>
-          n.endsWith(".ns.cloudflare.com")
-        );
-
-        if (isCloudflareNS) {
+        /* Generic Cloudflare detection */
+        if (nameservers.every(n => n.endsWith(".ns.cloudflare.com"))) {
           cloudflare = "Yes";
         }
 
-        /* Strict CSV match for email */
+        /* Exact CSV match → email */
         for (const row of cfEntries) {
           if (
-            row.ns.length === 2 &&
-            row.ns[0] === nameservers[0] &&
-            row.ns[1] === nameservers[1]
+            nameservers.includes(row.ns1) &&
+            nameservers.includes(row.ns2)
           ) {
             cfEmail = row.email;
             break;
