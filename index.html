@@ -59,7 +59,7 @@ th{text-align:left;color:#9aa4ff}
 </div>
 </div>
 <script>
-/* ---------- DNS LOOKUP ---------- */
+/* ---------- DNS ---------- */
 const dns = async (name, type) => {
   const res = await fetch(
     `https://dns.google/resolve?name=${encodeURIComponent(name)}&type=${type}`
@@ -68,7 +68,7 @@ const dns = async (name, type) => {
   return res.json();
 };
 
-/* ---------- CSV PARSER ---------- */
+/* ---------- CSV ---------- */
 const parseCSV = (text) => {
   const lines = text.trim().split(/\r?\n/);
   const headers = lines.shift().split(",").map(h => h.trim());
@@ -80,7 +80,7 @@ const parseCSV = (text) => {
   });
 };
 
-/* ---------- IP / CIDR MATCH ---------- */
+/* ---------- IP / CIDR ---------- */
 const ipInRange = (ip, cidr) => {
   if (!ip || !cidr) return false;
   if (!cidr.includes("/")) return ip === cidr;
@@ -113,34 +113,24 @@ runBtn.onclick = async () => {
     return;
   }
 
-  /* Load CSVs */
   let cpanelList = [];
   let cfList = [];
+
   try {
     cpanelList = parseCSV(await (await fetch(cpanelCsvEl.value)).text());
     cfList = parseCSV(await (await fetch(cfCsvEl.value)).text());
-  } catch (e) {
-    alert("Failed to load CSV data");
+  } catch {
+    alert("Failed to load CSV files");
     runBtn.disabled = false;
     runBtn.textContent = "Run Detection";
     return;
   }
 
-  /* Build Cloudflare map: email => [ns1, ns2] */
-  const cfMap = {};
-  for (const row of cfList) {
-    const email = row["Cloudflare Email"];
-    const ns = row["Nameservers"];
-    if (!email || !ns) continue;
-    if (!cfMap[email]) cfMap[email] = [];
-    cfMap[email].push(ns.trim());
-  }
-
-  /* Process domains */
   for (const domain of domains) {
     let ip = "-";
     let cpanel = "Unknown";
     let cf = "No";
+    let cfEmail = "-";
     let nsText = "-";
 
     try {
@@ -160,33 +150,43 @@ runBtn.onclick = async () => {
       /* NS record */
       const ns = await dns(domain, "NS");
       if (ns.Answer && ns.Answer.length) {
-        const found = ns.Answer.map(n =>
-          n.data.replace(/\.$/, "")
-        );
+        const found = ns.Answer
+          .map(n => n.data.replace(/\.$/, "").toLowerCase())
+          .sort();
+
         nsText = found.join(", ");
 
-        for (const email in cfMap) {
-          const expected = cfMap[email];
+        for (const row of cfList) {
+          const expected = row.Nameservers
+            .split(",")
+            .map(n => n.trim().toLowerCase())
+            .filter(Boolean)
+            .sort();
+
           if (
-            expected.length >= 2 &&
-            expected.every(e => found.includes(e))
+            expected.length === 2 &&
+            expected[0] === found[0] &&
+            expected[1] === found[1]
           ) {
             cf = "Yes";
+            cfEmail = row["Cloudflare Email"];
             break;
           }
         }
       }
-    } catch (e) {
+    } catch {
       nsText = "Error";
     }
 
-    /* Output row */
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${domain}</td>
       <td>${ip}</td>
       <td>${cpanel}</td>
-      <td><span class="badge ${cf === "Yes" ? "yes" : "no"}">${cf}</span></td>
+      <td>
+        <span class="badge ${cf === "Yes" ? "yes" : "no"}">${cf}</span>
+        ${cf === "Yes" ? `<div style="font-size:11px;opacity:.75">${cfEmail}</div>` : ""}
+      </td>
       <td>${nsText}</td>
     `;
     tbody.appendChild(tr);
@@ -197,6 +197,8 @@ runBtn.onclick = async () => {
 };
 </script>
 
+
 </body>
 </html>
+
 
