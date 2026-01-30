@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Bulk cPanel & Cloudflare Detector</title>
+<style>
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#0f1220;color:#eaeaf0;margin:0;padding:20px}
+.container{max-width:1200px;margin:auto}
+h1{font-size:24px;margin-bottom:10px}
+.card{background:#171a2e;border-radius:10px;padding:16px;margin-bottom:16px}
+textarea,input{width:100%;background:#0f1220;color:#eaeaf0;border:1px solid #2a2f55;border-radius:6px;padding:8px}
+button{background:#4f7cff;border:none;color:white;padding:10px 14px;border-radius:6px;cursor:pointer}
+button:disabled{opacity:.5}
+table{width:100%;border-collapse:collapse;margin-top:12px}
+th,td{border-bottom:1px solid #2a2f55;padding:8px;font-size:13px}
+th{text-align:left;color:#9aa4ff}
+.badge{padding:3px 8px;border-radius:12px;font-size:12px}
+.yes{background:#1e7f43}
+.no{background:#7f1e1e}
+.unknown{background:#555}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Bulk cPanel & Cloudflare Detector</h1>
+
+<div class="card">
+<b>Domains (one per line)</b>
+<textarea id="domains" rows="6" placeholder="example.com"></textarea>
+</div>
+
+<div class="card">
+<b>Google Sheet CSV URLs</b>
+<p style="font-size:13px;opacity:.8">Use the <code>export?format=csv&gid=XXXX</code> links for each sheet.</p>
+<label>cPanel sheet CSV</label>
+<input id="cpanelCsv" value="https://docs.google.com/spreadsheets/d/e/2PACX-1vQ2U3uOILXKnV9VTDJgH2LzuP9uG2SGRf_w65CSL9VXcwIyFrWNNpmycqSQwgl5SwuP6N2HQI8ibXWv/pub?output=csv&gid=0" />
+<label style="margin-top:8px;display:block">Cloudflare sheet CSV</label>
+<input id="cfCsv" value="https://docs.google.com/spreadsheets/d/e/2PACX-1vQ2U3uOILXKnV9VTDJgH2LzuP9uG2SGRf_w65CSL9VXcwIyFrWNNpmycqSQwgl5SwuP6N2HQI8ibXWv/pub?output=csv&gid=281551120" />
+</div>
+
+<div class="card">
+<button id="run">Run Detection</button>
+</div>
+
+<div class="card">
+<table id="resultTable">
+<thead>
+<tr>
+<th>Domain</th>
+<th>IP</th>
+<th>cPanel</th>
+<th>Cloudflare</th>
+<th>Nameservers</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+</div>
+</div>
+
+<script>
+const dns = async (name, type) => {
+  const res = await fetch(`https://dns.google/resolve?name=${name}&type=${type}`);
+  return res.json();
+};
+
+const parseCSV = text => {
+  const [head,...rows] = text.trim().split(/\r?\n/);
+  const keys = head.split(',').map(h=>h.trim());
+  return rows.map(r=>{
+    const obj={}; r.split(',').forEach((v,i)=>obj[keys[i]]=v.trim());
+    return obj;
+  });
+};
+
+const ipInRange = (ip, cidr) => {
+  if(!cidr.includes('/')) return ip===cidr;
+  const [range,bits] = cidr.split('/');
+  const ipToInt = i => i.split('.').reduce((a,o)=> (a<<8)+(+o),0);
+  const mask = -1 << (32-bits);
+  return (ipToInt(ip)&mask)===(ipToInt(range)&mask);
+};
+
+run.onclick = async ()=>{
+  const domains = domainsEl.value.split(/\s+/).filter(Boolean);
+};
+
+const domainsEl = document.getElementById('domains');
+const runBtn = document.getElementById('run');
+const tbody = document.querySelector('#resultTable tbody');
+
+runBtn.onclick = async ()=>{
+  tbody.innerHTML='';
+  runBtn.disabled=true;
+
+  const domains = domainsEl.value.split(/\s+/).filter(Boolean);
+  const cpanelList = parseCSV(await (await fetch(cpanelCsv.value)).text());
+  const cfList = parseCSV(await (await fetch(cfCsv.value)).text());
+
+  for(const domain of domains){
+    let ip='-', cpanel='Unknown', cf='No', nsText='-';
+    try{
+      const a = await dns(domain,'A');
+      if(a.Answer) ip = a.Answer[0].data;
+
+      for(const row of cpanelList){
+        if(ipInRange(ip,row.IP)) { cpanel=row['Cpanel Name']; break; }
+      }
+
+      const ns = await dns(domain,'NS');
+      if(ns.Answer){
+        const found = ns.Answer.map(n=>n.data.replace(/\.$/,''));
+        nsText = found.join(', ');
+        for(const row of cfList){
+          const expected = row.Nameservers.split(',').map(n=>n.trim());
+          if(expected.length===2 && expected.every(e=>found.includes(e))){
+            cf='Yes'; break;
+          }
+        }
+      }
+    }catch(e){}
+
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${domain}</td><td>${ip}</td><td>${cpanel}</td>
+    <td><span class="badge ${cf==='Yes'?'yes':'no'}">${cf}</span></td>
+    <td>${nsText}</td>`;
+    tbody.appendChild(tr);
+  }
+  runBtn.disabled=false;
+};
+</script>
+</body>
+</html>
