@@ -2,103 +2,187 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Bulk cPanel & Cloudflare Detector</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>cPanel & Cloudflare Bulk Detector</title>
+
 <style>
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#0f1220;color:#eaeaf0;margin:0;padding:20px}
-.container{max-width:1200px;margin:auto}
-h1{font-size:24px;margin-bottom:10px}
-.card{background:#171a2e;border-radius:10px;padding:16px;margin-bottom:16px}
-textarea,input{width:100%;background:#0f1220;color:#eaeaf0;border:1px solid #2a2f55;border-radius:6px;padding:8px}
-button{background:#4f7cff;border:none;color:white;padding:10px 14px;border-radius:6px;cursor:pointer}
-button:disabled{opacity:.5}
-table{width:100%;border-collapse:collapse;margin-top:12px}
-th,td{border-bottom:1px solid #2a2f55;padding:8px;font-size:13px}
-th{text-align:left;color:#9aa4ff}
-.badge{padding:3px 8px;border-radius:12px;font-size:12px}
-.yes{background:#1e7f43}
-.no{background:#7f1e1e}
-.unknown{background:#555}
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background: #0f1220;
+  color: #eaeaf0;
+  margin: 0;
+  padding: 20px;
+}
+.container {
+  max-width: 1200px;
+  margin: auto;
+}
+h1 {
+  font-size: 24px;
+  margin-bottom: 12px;
+}
+.card {
+  background: #171a2e;
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+textarea {
+  width: 100%;
+  min-height: 120px;
+  background: #0f1220;
+  color: #eaeaf0;
+  border: 1px solid #2a2f55;
+  border-radius: 6px;
+  padding: 10px;
+}
+button {
+  background: #4f7cff;
+  border: none;
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+th, td {
+  border-bottom: 1px solid #2a2f55;
+  padding: 8px;
+  font-size: 13px;
+  vertical-align: top;
+}
+th {
+  color: #9aa4ff;
+  text-align: left;
+}
+.badge {
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  display: inline-block;
+}
+.yes { background: #1e7f43; }
+.no { background: #7f1e1e; }
+.small {
+  font-size: 11px;
+  opacity: 0.75;
+  margin-top: 2px;
+}
+.status {
+  font-size: 13px;
+  opacity: 0.8;
+}
 </style>
 </head>
+
 <body>
 <div class="container">
+
 <h1>Bulk cPanel & Cloudflare Detector</h1>
 
 <div class="card">
-<b>Domains (one per line)</b>
-<textarea id="domains" rows="6" placeholder="example.com"></textarea>
+  <b>Domains (one per line)</b>
+  <textarea id="domains" placeholder="example.com"></textarea>
 </div>
 
 <div class="card">
-<b>Google Sheet CSV URLs</b>
-<p style="font-size:13px;opacity:.8">Use the <code>export?format=csv&gid=XXXX</code> links for each sheet.</p>
-<label>cPanel sheet CSV</label>
-<input id="cpanelCsv" value="https://docs.google.com/spreadsheets/d/e/2PACX-1vQ2U3uOILXKnV9VTDJgH2LzuP9uG2SGRf_w65CSL9VXcwIyFrWNNpmycqSQwgl5SwuP6N2HQI8ibXWv/pub?output=csv&gid=0" />
-<label style="margin-top:8px;display:block">Cloudflare sheet CSV</label>
-<input id="cfCsv" value="https://docs.google.com/spreadsheets/d/e/2PACX-1vQ2U3uOILXKnV9VTDJgH2LzuP9uG2SGRf_w65CSL9VXcwIyFrWNNpmycqSQwgl5SwuP6N2HQI8ibXWv/pub?output=csv&gid=281551120" />
+  <button id="run">Run Detection</button>
+  <span id="status" class="status"></span>
 </div>
 
 <div class="card">
-<button id="run">Run Detection</button>
+  <table>
+    <thead>
+      <tr>
+        <th>Domain</th>
+        <th>IP</th>
+        <th>cPanel</th>
+        <th>Cloudflare</th>
+        <th>Nameservers</th>
+      </tr>
+    </thead>
+    <tbody id="results"></tbody>
+  </table>
 </div>
 
-<div class="card">
-<table id="resultTable">
-<thead>
-<tr>
-<th>Domain</th>
-<th>IP</th>
-<th>cPanel</th>
-<th>Cloudflare</th>
-<th>Nameservers</th>
-</tr>
-</thead>
-<tbody></tbody>
-</table>
 </div>
-</div>
+
 <script>
-document.getElementById("run").onclick = async () => {
+const runBtn = document.getElementById("run");
+const resultsEl = document.getElementById("results");
+const statusEl = document.getElementById("status");
+
+runBtn.onclick = async () => {
   const domains = document
     .getElementById("domains")
-    .value.split(/\s+/)
+    .value
+    .split(/\s+/)
     .filter(Boolean);
 
-  const tbody = document.querySelector("#resultTable tbody");
-  tbody.innerHTML = "";
-
-  const res = await fetch("/.netlify/functions/detect", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ domains })
-  });
-
-  const data = await res.json();
-
-  for (const r of data) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${r.domain}</td>
-      <td>${r.ip}</td>
-      <td>${r.cpanel}</td>
-      <td>
-        <span class="badge ${r.cloudflare === "Yes" ? "yes" : "no"}">
-          ${r.cloudflare}
-        </span>
-        ${r.cloudflare === "Yes"
-          ? `<div style="font-size:11px;opacity:.7">${r.cloudflare_email}</div>`
-          : ""}
-      </td>
-      <td>${r.nameservers}</td>
-    `;
-    tbody.appendChild(tr);
+  if (!domains.length) {
+    alert("Please enter at least one domain.");
+    return;
   }
+
+  runBtn.disabled = true;
+  statusEl.textContent = "Checking domains…";
+  resultsEl.innerHTML = "";
+
+  try {
+    const res = await fetch("/.netlify/functions/detect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domains })
+    });
+
+    if (!res.ok) {
+      throw new Error("Function error: " + res.status);
+    }
+
+    const data = await res.json();
+
+    if (!Array.isArray(data)) {
+      throw new Error("Invalid response from function");
+    }
+
+    for (const r of data) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${r.domain}</td>
+        <td>${r.ip}</td>
+        <td>${r.cpanel}</td>
+        <td>
+          <span class="badge ${r.cloudflare === "Yes" ? "yes" : "no"}">
+            ${r.cloudflare}
+          </span>
+          ${r.cloudflare === "Yes"
+            ? `<div class="small">${r.cloudflare_email}</div>`
+            : ""}
+        </td>
+        <td>${r.nameservers || "-"}</td>
+      `;
+      resultsEl.appendChild(tr);
+    }
+
+    statusEl.textContent = `Done (${data.length} domains checked)`;
+  } catch (err) {
+    console.error(err);
+    alert("Error: " + err.message);
+    statusEl.textContent = "Error occurred";
+  }
+
+  runBtn.disabled = false;
 };
 </script>
 
 </body>
 </html>
-
-
-
