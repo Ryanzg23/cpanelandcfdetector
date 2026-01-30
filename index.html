@@ -59,146 +59,46 @@ th{text-align:left;color:#9aa4ff}
 </div>
 </div>
 <script>
-/* ---------- DNS ---------- */
-const dns = async (name, type) => {
-  const res = await fetch(
-    `https://dns.google/resolve?name=${encodeURIComponent(name)}&type=${type}`
-  );
-  if (!res.ok) throw new Error("DNS failed");
-  return res.json();
-};
+document.getElementById("run").onclick = async () => {
+  const domains = document
+    .getElementById("domains")
+    .value.split(/\s+/)
+    .filter(Boolean);
 
-/* ---------- CSV ---------- */
-const parseCSV = (text) => {
-  const lines = text.trim().split(/\r?\n/);
-  const headers = lines.shift().split(",").map(h => h.trim());
-  return lines.map(line => {
-    const cols = line.split(",");
-    const obj = {};
-    headers.forEach((h, i) => obj[h] = (cols[i] || "").trim());
-    return obj;
-  });
-};
-
-/* ---------- IP / CIDR ---------- */
-const ipInRange = (ip, cidr) => {
-  if (!ip || !cidr) return false;
-  if (!cidr.includes("/")) return ip === cidr;
-
-  const [range, bits] = cidr.split("/");
-  const ipToInt = i =>
-    i.split(".").reduce((a, o) => ((a << 8) + +o) >>> 0, 0);
-
-  const mask = bits == 0 ? 0 : (~0 << (32 - bits)) >>> 0;
-  return (ipToInt(ip) & mask) === (ipToInt(range) & mask);
-};
-
-/* ---------- DOM ---------- */
-const domainsEl = document.getElementById("domains");
-const runBtn = document.getElementById("run");
-const tbody = document.querySelector("#resultTable tbody");
-const cpanelCsvEl = document.getElementById("cpanelCsv");
-const cfCsvEl = document.getElementById("cfCsv");
-
-/* ---------- MAIN ---------- */
-runBtn.onclick = async () => {
+  const tbody = document.querySelector("#resultTable tbody");
   tbody.innerHTML = "";
-  runBtn.disabled = true;
-  runBtn.textContent = "Checking…";
 
-  const domains = domainsEl.value.split(/\s+/).filter(Boolean);
-  if (!domains.length) {
-    runBtn.disabled = false;
-    runBtn.textContent = "Run Detection";
-    return;
-  }
+  const res = await fetch("/.netlify/functions/detect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domains })
+  });
 
-  let cpanelList = [];
-  let cfList = [];
+  const data = await res.json();
 
-  try {
-    cpanelList = parseCSV(await (await fetch(cpanelCsvEl.value)).text());
-    cfList = parseCSV(await (await fetch(cfCsvEl.value)).text());
-  } catch {
-    alert("Failed to load CSV files");
-    runBtn.disabled = false;
-    runBtn.textContent = "Run Detection";
-    return;
-  }
-
-  for (const domain of domains) {
-    let ip = "-";
-    let cpanel = "Unknown";
-    let cf = "No";
-    let cfEmail = "-";
-    let nsText = "-";
-
-    try {
-      /* A record */
-      const a = await dns(domain, "A");
-      if (a.Answer && a.Answer.length) {
-        ip = a.Answer[0].data;
-
-        for (const row of cpanelList) {
-          if (ipInRange(ip, row.IP)) {
-            cpanel = row["Cpanel Name"];
-            break;
-          }
-        }
-      }
-
-      /* NS record */
-      const ns = await dns(domain, "NS");
-      if (ns.Answer && ns.Answer.length) {
-        const found = ns.Answer
-          .map(n => n.data.replace(/\.$/, "").toLowerCase())
-          .sort();
-
-        nsText = found.join(", ");
-
-        for (const row of cfList) {
-          const expected = row.Nameservers
-            .split(",")
-            .map(n => n.trim().toLowerCase())
-            .filter(Boolean)
-            .sort();
-
-          if (
-            expected.length === 2 &&
-            expected[0] === found[0] &&
-            expected[1] === found[1]
-          ) {
-            cf = "Yes";
-            cfEmail = row["Cloudflare Email"];
-            break;
-          }
-        }
-      }
-    } catch {
-      nsText = "Error";
-    }
-
+  for (const r of data) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${domain}</td>
-      <td>${ip}</td>
-      <td>${cpanel}</td>
+      <td>${r.domain}</td>
+      <td>${r.ip}</td>
+      <td>${r.cpanel}</td>
       <td>
-        <span class="badge ${cf === "Yes" ? "yes" : "no"}">${cf}</span>
-        ${cf === "Yes" ? `<div style="font-size:11px;opacity:.75">${cfEmail}</div>` : ""}
+        <span class="badge ${r.cloudflare === "Yes" ? "yes" : "no"}">
+          ${r.cloudflare}
+        </span>
+        ${r.cloudflare === "Yes"
+          ? `<div style="font-size:11px;opacity:.7">${r.cloudflare_email}</div>`
+          : ""}
       </td>
-      <td>${nsText}</td>
+      <td>${r.nameservers}</td>
     `;
     tbody.appendChild(tr);
   }
-
-  runBtn.disabled = false;
-  runBtn.textContent = "Run Detection";
 };
 </script>
 
-
 </body>
 </html>
+
 
 
