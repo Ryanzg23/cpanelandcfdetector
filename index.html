@@ -58,77 +58,145 @@ th{text-align:left;color:#9aa4ff}
 </table>
 </div>
 </div>
-
 <script>
+/* ---------- DNS LOOKUP ---------- */
 const dns = async (name, type) => {
-  const res = await fetch(`https://dns.google/resolve?name=${name}&type=${type}`);
+  const res = await fetch(
+    `https://dns.google/resolve?name=${encodeURIComponent(name)}&type=${type}`
+  );
+  if (!res.ok) throw new Error("DNS failed");
   return res.json();
 };
 
-const parseCSV = text => {
-  const [head,...rows] = text.trim().split(/\r?\n/);
-  const keys = head.split(',').map(h=>h.trim());
-  return rows.map(r=>{
-    const obj={}; r.split(',').forEach((v,i)=>obj[keys[i]]=v.trim());
+/* ---------- CSV PARSER ---------- */
+const parseCSV = (text) => {
+  const lines = text.trim().split(/\r?\n/);
+  const headers = lines.shift().split(",").map(h => h.trim());
+  return lines.map(line => {
+    const cols = line.split(",");
+    const obj = {};
+    headers.forEach((h, i) => obj[h] = (cols[i] || "").trim());
     return obj;
   });
 };
 
+/* ---------- IP / CIDR MATCH ---------- */
 const ipInRange = (ip, cidr) => {
-  if(!cidr.includes('/')) return ip===cidr;
-  const [range,bits] = cidr.split('/');
-  const ipToInt = i => i.split('.').reduce((a,o)=> (a<<8)+(+o),0);
-  const mask = -1 << (32-bits);
-  return (ipToInt(ip)&mask)===(ipToInt(range)&mask);
+  if (!ip || !cidr) return false;
+  if (!cidr.includes("/")) return ip === cidr;
+
+  const [range, bits] = cidr.split("/");
+  const ipToInt = i =>
+    i.split(".").reduce((a, o) => ((a << 8) + +o) >>> 0, 0);
+
+  const mask = bits == 0 ? 0 : (~0 << (32 - bits)) >>> 0;
+  return (ipToInt(ip) & mask) === (ipToInt(range) & mask);
 };
 
-run.onclick = async ()=>{
+/* ---------- DOM ---------- */
+const domainsEl = document.getElementById("domains");
+const runBtn = document.getElementById("run");
+const tbody = document.querySelector("#resultTable tbody");
+const cpanelCsvEl = document.getElementById("cpanelCsv");
+const cfCsvEl = document.getElementById("cfCsv");
+
+/* ---------- MAIN ---------- */
+runBtn.onclick = async () => {
+  tbody.innerHTML = "";
+  runBtn.disabled = true;
+  runBtn.textContent = "Checking…";
+
   const domains = domainsEl.value.split(/\s+/).filter(Boolean);
-};
+  if (!domains.length) {
+    runBtn.disabled = false;
+    runBtn.textContent = "Run Detection";
+    return;
+  }
 
-const domainsEl = document.getElementById('domains');
-const runBtn = document.getElementById('run');
-const tbody = document.querySelector('#resultTable tbody');
+  /* Load CSVs */
+  let cpanelList = [];
+  let cfList = [];
+  try {
+    cpanelList = parseCSV(await (await fetch(cpanelCsvEl.value)).text());
+    cfList = parseCSV(await (await fetch(cfCsvEl.value)).text());
+  } catch (e) {
+    alert("Failed to load CSV data");
+    runBtn.disabled = false;
+    runBtn.textContent = "Run Detection";
+    return;
+  }
 
-runBtn.onclick = async ()=>{
-  tbody.innerHTML='';
-  runBtn.disabled=true;
+  /* Build Cloudflare map: email => [ns1, ns2] */
+  const cfMap = {};
+  for (const row of cfList) {
+    const email = row["Cloudflare Email"];
+    const ns = row["Nameservers"];
+    if (!email || !ns) continue;
+    if (!cfMap[email]) cfMap[email] = [];
+    cfMap[email].push(ns.trim());
+  }
 
-  const domains = domainsEl.value.split(/\s+/).filter(Boolean);
-  const cpanelList = parseCSV(await (await fetch(cpanelCsv.value)).text());
-  const cfList = parseCSV(await (await fetch(cfCsv.value)).text());
+  /* Process domains */
+  for (const domain of domains) {
+    let ip = "-";
+    let cpanel = "Unknown";
+    let cf = "No";
+    let nsText = "-";
 
-  for(const domain of domains){
-    let ip='-', cpanel='Unknown', cf='No', nsText='-';
-    try{
-      const a = await dns(domain,'A');
-      if(a.Answer) ip = a.Answer[0].data;
+    try {
+      /* A record */
+      const a = await dns(domain, "A");
+      if (a.Answer && a.Answer.length) {
+        ip = a.Answer[0].data;
 
-      for(const row of cpanelList){
-        if(ipInRange(ip,row.IP)) { cpanel=row['Cpanel Name']; break; }
-      }
-
-      const ns = await dns(domain,'NS');
-      if(ns.Answer){
-        const found = ns.Answer.map(n=>n.data.replace(/\.$/,''));
-        nsText = found.join(', ');
-        for(const row of cfList){
-          const expected = row.Nameservers.split(',').map(n=>n.trim());
-          if(expected.length===2 && expected.every(e=>found.includes(e))){
-            cf='Yes'; break;
+        for (const row of cpanelList) {
+          if (ipInRange(ip, row.IP)) {
+            cpanel = row["Cpanel Name"];
+            break;
           }
         }
       }
-    }catch(e){}
 
-    const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${domain}</td><td>${ip}</td><td>${cpanel}</td>
-    <td><span class="badge ${cf==='Yes'?'yes':'no'}">${cf}</span></td>
-    <td>${nsText}</td>`;
+      /* NS record */
+      const ns = await dns(domain, "NS");
+      if (ns.Answer && ns.Answer.length) {
+        const found = ns.Answer.map(n =>
+          n.data.replace(/\.$/, "")
+        );
+        nsText = found.join(", ");
+
+        for (const email in cfMap) {
+          const expected = cfMap[email];
+          if (
+            expected.length >= 2 &&
+            expected.every(e => found.includes(e))
+          ) {
+            cf = "Yes";
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      nsText = "Error";
+    }
+
+    /* Output row */
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${domain}</td>
+      <td>${ip}</td>
+      <td>${cpanel}</td>
+      <td><span class="badge ${cf === "Yes" ? "yes" : "no"}">${cf}</span></td>
+      <td>${nsText}</td>
+    `;
     tbody.appendChild(tr);
   }
-  runBtn.disabled=false;
+
+  runBtn.disabled = false;
+  runBtn.textContent = "Run Detection";
 };
 </script>
+
 </body>
 </html>
+
