@@ -161,12 +161,13 @@ runBtn.onclick = async () => {
         <td>${r.ip}</td>
         <td>${r.cpanel}</td>
         <td>
-          <span class="badge ${r.cloudflare === "Yes" ? "yes" : "no"}">
-            ${r.cloudflare}
-          </span>
-          ${r.cloudflare === "Yes"
-            ? `<div class="small">${r.cloudflare_email}</div>`
-            : ""}
+          ${
+            r.cloudflare_email && r.cloudflare_email !== "-"
+              ? `<div style="font-size:14px;font-weight:600;color:#7dffb3">
+                   ${r.cloudflare_email}
+                 </div>`
+              : `<span style="opacity:.5">-</span>`
+          }
         </td>
         <td>${r.nameservers || "-"}</td>
       `;
@@ -186,3 +187,4 @@ runBtn.onclick = async () => {
 
 </body>
 </html>
+
