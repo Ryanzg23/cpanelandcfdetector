@@ -1,5 +1,4 @@
 import dns from "dns/promises";
-import fetch from "node-fetch";
 
 /* ---------- CSV PARSER (ROBUST) ---------- */
 function parseCSV(text) {
@@ -66,7 +65,10 @@ export async function handler(event) {
   try {
     const { domains } = JSON.parse(event.body || "{}");
     if (!domains || !domains.length) {
-      return { statusCode: 400, body: "No domains provided" };
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "No domains provided" })
+      };
     }
 
     /* CSV SOURCES */
@@ -76,7 +78,7 @@ export async function handler(event) {
     const CLOUDFLARE_CSV =
       "https://docs.google.com/spreadsheets/d/1AtmjzUR_iGHCUE_tYLMAM9BP8Zx37nGiU0g632f2594/export?format=csv&gid=281551120";
 
-    /* FETCH CSVs */
+    /* FETCH CSVs (Node 18 native fetch) */
     const [cpRes, cfRes] = await Promise.all([
       fetch(CPANEL_CSV),
       fetch(CLOUDFLARE_CSV)
@@ -85,7 +87,7 @@ export async function handler(event) {
     const cpanelList = parseCSV(await cpRes.text());
     const cfList = parseCSV(await cfRes.text());
 
-    /* NORMALIZE CF NS */
+    /* Normalize Cloudflare NS */
     const cfEntries = cfList.map(r => ({
       email: r["Cloudflare Email"],
       ns: r.Nameservers
@@ -148,6 +150,9 @@ export async function handler(event) {
       body: JSON.stringify(results)
     };
   } catch (err) {
-    return { statusCode: 500, body: err.toString() };
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: err.message })
+    };
   }
 }
