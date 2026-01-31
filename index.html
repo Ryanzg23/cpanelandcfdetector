@@ -188,22 +188,23 @@ tbody tr:hover {
   /* Status badges */
 .badge {
   display: inline-block;
-  padding: 2px 8px;
+  padding: 2px 6px;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
-  margin-left: 6px;
+  line-height: 1;
 }
 
 .badge-301 {
-  background: #16a34a;
+  background: #2563eb; /* blue */
   color: #ffffff;
 }
 
 .badge-200 {
-  background: #22c55e;
+  background: #16a34a; /* green */
   color: #ffffff;
 }
+
 
 /* Trail table inside modal */
 .trail-table {
@@ -391,7 +392,9 @@ document.addEventListener("DOMContentLoaded", () => {
             ${
               r.http_result?.startsWith("301 to")
                 ? `<span class="badge badge-301">301</span> ${r.http_result.replace(/^301\s+to\s+/i, "to ")}`
-                : r.http_result || "-"
+                : r.http_result?.startsWith("http")
+                  ? `<span class="badge badge-200">200</span> ${r.http_result}`
+                  : r.http_result || "-"
             }
             ${
               r.http_trail && r.http_trail.length > 1
@@ -440,5 +443,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
 </body>
 </html>
+
 
 
