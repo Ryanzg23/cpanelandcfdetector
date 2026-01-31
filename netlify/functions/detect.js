@@ -66,8 +66,8 @@ async function getRegistrar(domain) {
 
 /* ================= HTTP / 301 DETECTION ================= */
 async function detectHttp(domain, maxHops = 6) {
-  let currentUrl = "http://" + domain;
   let trail = [];
+  let currentUrl = "http://" + domain;
 
   try {
     for (let i = 0; i < maxHops; i++) {
@@ -88,29 +88,49 @@ async function detectHttp(domain, maxHops = 6) {
         currentUrl = new URL(location, currentUrl).toString();
         continue;
       }
+
       break;
     }
 
-    const firstHost = domain.replace(/^www\./, "");
-    const last = trail[trail.length - 1];
-    const finalUrl = last.url;
+    let finalUrl = currentUrl;
+
+    // 🔑 HTTPS preference check
+    if (finalUrl.startsWith("http://")) {
+      try {
+        const httpsUrl = finalUrl.replace(/^http:/, "https:");
+        const httpsRes = await fetch(httpsUrl, { redirect: "manual" });
+        if (httpsRes.status >= 200 && httpsRes.status < 400) {
+          trail.push({
+            url: httpsUrl,
+            status: httpsRes.status,
+            via: httpsRes.headers.get("server")?.toLowerCase().includes("cloudflare")
+              ? "Cloudflare"
+              : "htaccess"
+          });
+          finalUrl = httpsUrl;
+        }
+      } catch {}
+    }
+
+    const startHost = domain.replace(/^www\./, "");
     const finalHost = new URL(finalUrl).hostname.replace(/^www\./, "");
 
-    // Same domain (http → https, www cleanup)
-    if (firstHost === finalHost) {
+    // Same-domain → show canonical protocol + host
+    if (startHost === finalHost) {
       return {
         result: `${new URL(finalUrl).protocol}//${finalHost}`,
-        via: last.via,
+        via: trail[trail.length - 1]?.via || "-",
         trail
       };
     }
 
-    // Cross-domain redirect → keep FULL path
+    // Cross-domain → FULL URL
     return {
       result: `301 to ${finalUrl}`,
-      via: last.via,
+      via: trail[trail.length - 1]?.via || "-",
       trail
     };
+
   } catch {
     return {
       result: "Domain not active",
@@ -232,3 +252,4 @@ export async function handler(event) {
     };
   }
 }
+
