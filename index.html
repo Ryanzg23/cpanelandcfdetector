@@ -164,10 +164,13 @@ tbody tr:hover {
         <th>Domain</th>
         <th>Cloudflare</th>
         <th>Registrar</th>
-        <th>HTTP / 301</th>
+        <th>HTTP Result</th>
+        <th>301 Via</th>
+        <th></th>
         <th>Nameservers</th>
       </tr>
     </thead>
+
     <tbody id="results"></tbody>
   </table>
 </div>
@@ -175,29 +178,6 @@ tbody tr:hover {
 </div>
 
 <script>
-/* ---------- THEME TOGGLE (BUTTON) ---------- */
-const btn = document.getElementById("themeToggle");
-
-function setTheme(theme) {
-  if (theme === "dark") {
-    document.body.classList.add("dark");
-    btn.textContent = "🌞 Light";
-  } else {
-    document.body.classList.remove("dark");
-    btn.textContent = "🌙 Dark";
-  }
-  localStorage.setItem("theme", theme);
-}
-
-// load saved theme
-const savedTheme = localStorage.getItem("theme") || "light";
-setTheme(savedTheme);
-
-btn.addEventListener("click", () => {
-  const isDark = document.body.classList.contains("dark");
-  setTheme(isDark ? "light" : "dark");
-});
-
 /* ---------- DOMAIN NORMALIZER ---------- */
 function normalizeDomain(input) {
   try {
@@ -210,6 +190,13 @@ function normalizeDomain(input) {
   }
 }
 
+/* ---------- TOGGLE REDIRECT TRAIL ---------- */
+function toggleTrail(id) {
+  const row = document.getElementById(id);
+  if (!row) return;
+  row.style.display = row.style.display === "none" ? "table-row" : "none";
+}
+
 document.getElementById("run").onclick = async () => {
   const rawLines = document.getElementById("domains")
     .value.split(/\s+/)
@@ -220,7 +207,7 @@ document.getElementById("run").onclick = async () => {
   )];
 
   const tbody = document.getElementById("results");
-  tbody.innerHTML = "<tr><td colspan='4'>Checking…</td></tr>";
+  tbody.innerHTML = "<tr><td colspan='7'>Checking…</td></tr>";
 
   const res = await fetch("/.netlify/functions/detect", {
     method: "POST",
@@ -232,43 +219,64 @@ document.getElementById("run").onclick = async () => {
   tbody.innerHTML = "";
 
   for (const r of data) {
+    const trailId = "trail-" + Math.random().toString(36).slice(2);
+
     const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${r.domain}</td>
-      
-        <td>
-          ${
-            r.cloudflare === "Not listed"
-              ? `<span style="opacity:.6">Not listed</span>`
-              : r.cloudflare && r.cloudflare !== "-"
-                ? `<div style="font-weight:600;color:#22c55e">${r.cloudflare}</div>`
-                : `<span style="opacity:.5">-</span>`
-          }
-        </td>
-      
-        <td>${r.registrar || "-"}</td>
-      
-        <td>
-          <div style="font-size:13px">
-            ${r.http_version || "-"}
-            ${
-              r.http_source && r.http_source !== "-"
-                ? `<span style="opacity:.5"> (${r.http_source})</span>`
-                : ""
-            }
+    tr.innerHTML = `
+      <td>${r.domain}</td>
+
+      <td>
+        ${
+          r.cloudflare === "Not listed"
+            ? `<span style="opacity:.6">Not listed</span>`
+            : r.cloudflare && r.cloudflare !== "-"
+              ? `<strong style="color:#22c55e">${r.cloudflare}</strong>`
+              : `<span style="opacity:.5">-</span>`
+        }
+      </td>
+
+      <td>${r.registrar || "-"}</td>
+
+      <td>${r.http_result || "-"}</td>
+      <td>${r.http_via || "-"}</td>
+
+      <td>
+        ${
+          r.http_trail && r.http_trail.length > 1
+            ? `<button onclick="toggleTrail('${trailId}')">↗</button>`
+            : ""
+        }
+      </td>
+
+      <td>${r.nameservers || "-"}</td>
+    `;
+    tbody.appendChild(tr);
+
+    if (r.http_trail && r.http_trail.length > 1) {
+      const tr2 = document.createElement("tr");
+      tr2.id = trailId;
+      tr2.style.display = "none";
+      tr2.innerHTML = `
+        <td colspan="7">
+          <div style="font-size:13px;line-height:1.6">
+            ${r.http_trail.map(t => `
+              ${t.url}
+              <span style="opacity:.6">
+                (${t.status}${t.status >= 300 && t.status < 400 ? ", via " + t.via : ""})
+              </span>
+            `).join("<br>")}
           </div>
         </td>
-      
-        <td>${r.nameservers || "-"}</td>
       `;
-
-    tbody.appendChild(tr);
+      tbody.appendChild(tr2);
+    }
   }
 };
 </script>
 
 </body>
 </html>
+
 
 
 
