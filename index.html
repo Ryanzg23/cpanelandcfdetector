@@ -75,6 +75,30 @@ button:disabled {
   margin-bottom: 16px;
 }
 
+/* Prevent textarea overflow */
+textarea {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+/* Prevent table overflow */
+table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+/* Force long URLs to wrap */
+td {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* Safety for cards */
+.card {
+  overflow-x: auto;
+}
+
+
 textarea {
   width: 100%;
   min-height: 120px;
@@ -443,6 +467,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 </body>
 </html>
+
 
 
 
