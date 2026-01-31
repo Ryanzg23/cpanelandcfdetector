@@ -184,6 +184,49 @@ tbody tr:hover {
   cursor: pointer;
   color: var(--text);
 }
+
+  /* Status badges */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-left: 6px;
+}
+
+.badge-301 {
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.badge-200 {
+  background: #22c55e;
+  color: #ffffff;
+}
+
+/* Trail table inside modal */
+.trail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.trail-table td {
+  padding: 6px 0;
+  vertical-align: middle;
+}
+
+.trail-url {
+  color: var(--accent);
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.trail-status {
+  margin-left: 8px;
+}
+
 </style>
 </head>
 
@@ -242,7 +285,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let isRunning = false;
   window.TRAILS = {};
 
-  /* Theme toggle */
+  /* ================= THEME TOGGLE ================= */
   const themeBtn = document.getElementById("themeToggle");
   function setTheme(t) {
     document.body.classList.toggle("dark", t === "dark");
@@ -253,23 +296,41 @@ document.addEventListener("DOMContentLoaded", () => {
   themeBtn.onclick = () =>
     setTheme(document.body.classList.contains("dark") ? "light" : "dark");
 
-  /* Modal */
-  window.openTrail = id => {
+  /* ================= MODAL ================= */
+  window.openTrail = function (id) {
     const trail = window.TRAILS[id];
-    if (!trail) return;
-    document.getElementById("trailBody").innerHTML =
-      trail.map(t =>
-        `${t.url}
-         <span style="opacity:.6">
-           (${t.status}${t.status >= 300 && t.status < 400 ? ", via " + t.via : ""})
-         </span>`
-      ).join("<br>");
+    if (!trail || !trail.length) return;
+
+    const body = document.getElementById("trailBody");
+    body.innerHTML = `
+      <table class="trail-table">
+        ${trail.map(step => `
+          <tr>
+            <td>
+              <a class="trail-url" href="${step.url}" target="_blank">
+                ${step.url}
+              </a>
+            </td>
+            <td style="text-align:right">
+              ${
+                step.status === 301
+                  ? `<span class="badge badge-301">301</span>`
+                  : step.status === 200
+                    ? `<span class="badge badge-200">200</span>`
+                    : `<span class="badge">${step.status}</span>`
+              }
+            </td>
+          </tr>
+        `).join("")}
+      </table>
+    `;
     document.getElementById("trailModal").style.display = "block";
   };
+
   window.closeTrail = () =>
     document.getElementById("trailModal").style.display = "none";
 
-  /* Run detection */
+  /* ================= RUN DETECTION ================= */
   const runBtn = document.getElementById("run");
   const textarea = document.getElementById("domains");
   const tbody = document.getElementById("results");
@@ -282,7 +343,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     runBtn.disabled = true;
     runBtn.textContent = "Checking…";
-
     progressWrap.style.opacity = "1";
     progressBar.style.width = "15%";
 
@@ -291,18 +351,19 @@ document.addEventListener("DOMContentLoaded", () => {
     )];
 
     tbody.innerHTML = `
-      <tr><td colspan="6" style="opacity:.6">Checking…</td></tr>
+      <tr>
+        <td colspan="6" style="opacity:.6">Checking…</td>
+      </tr>
     `;
 
-    try {
-      // Simulated progress while waiting
-      const fakeProgress = setInterval(() => {
-        const current = parseInt(progressBar.style.width) || 15;
-        if (current < 85) {
-          progressBar.style.width = current + 5 + "%";
-        }
-      }, 400);
+    let fakeProgress = setInterval(() => {
+      const current = parseInt(progressBar.style.width) || 15;
+      if (current < 85) {
+        progressBar.style.width = (current + 5) + "%";
+      }
+    }, 400);
 
+    try {
       const res = await fetch("/.netlify/functions/detect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -323,17 +384,26 @@ document.addEventListener("DOMContentLoaded", () => {
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td>${r.domain}</td>
+
           <td>${r.cloudflare || "-"}</td>
+
           <td>
-            ${r.http_result || "-"}
+            ${
+              r.http_result?.startsWith("301 to")
+                ? `<span class="badge badge-301">${r.http_result}</span>`
+                : r.http_result || "-"
+            }
             ${
               r.http_trail && r.http_trail.length > 1
                 ? ` <a class="action-link" onclick="openTrail('${id}')">(view trail)</a>`
                 : ""
             }
           </td>
+
           <td>${r.http_via || "-"}</td>
+
           <td>${r.registrar || "-"}</td>
+
           <td>
             ${
               r.nameservers && r.nameservers !== "-"
@@ -345,11 +415,14 @@ document.addEventListener("DOMContentLoaded", () => {
         tbody.appendChild(tr);
       });
 
-    } catch {
+    } catch (err) {
+      console.error(err);
       tbody.innerHTML = `
-        <tr><td colspan="6" style="color:#dc2626">
-          Detection failed. Please try again.
-        </td></tr>
+        <tr>
+          <td colspan="6" style="color:#dc2626">
+            Detection failed. Please try again.
+          </td>
+        </tr>
       `;
     }
 
@@ -364,5 +437,7 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 });
 </script>
+
 </body>
 </html>
+
