@@ -148,6 +148,45 @@ tbody tr:hover {
   background-color: rgba(37, 99, 235, 0.08);
 }
 
+
+.modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.45);
+  z-index: 999;
+}
+
+.modal-content {
+  background: var(--card);
+  color: var(--text);
+  max-width: 640px;
+  margin: 8vh auto;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-body {
+  padding: 16px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.modal-header button {
+  background: none;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  color: var(--text);
+}
+
 </style>
 
 </head>
@@ -190,128 +229,86 @@ tbody tr:hover {
 
 </div>
 
+
+<div id="trailModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <strong>Redirect Trail</strong>
+      <button onclick="closeTrail()">✕</button>
+    </div>
+    <div id="trailBody" class="modal-body"></div>
+  </div>
+</div>
+
+
 <script>
-document.addEventListener("DOMContentLoaded", () => {
+let TRAILS = {};
 
-  /* ---------- THEME TOGGLE ---------- */
-  const themeBtn = document.getElementById("themeToggle");
-  if (themeBtn) {
-    const setTheme = (t) => {
-      document.body.classList.toggle("dark", t === "dark");
-      themeBtn.textContent = t === "dark" ? "🌞 Light" : "🌙 Dark";
-      localStorage.setItem("theme", t);
-    };
+function openTrail(id) {
+  const trail = TRAILS[id];
+  if (!trail) return;
 
-    setTheme(localStorage.getItem("theme") || "light");
+  document.getElementById("trailBody").innerHTML =
+    trail.map(t =>
+      `${t.url}
+       <span style="opacity:.6">
+         (${t.status}${t.status >= 300 && t.status < 400 ? ", via " + t.via : ""})
+       </span>`
+    ).join("<br>");
 
-    themeBtn.onclick = () => {
-      setTheme(
-        document.body.classList.contains("dark") ? "light" : "dark"
-      );
-    };
-  }
+  document.getElementById("trailModal").style.display = "block";
+}
 
-  /* ---------- DOMAIN NORMALIZER ---------- */
-  function normalizeDomain(input) {
-    try {
-      input = input.trim();
-      if (!input.startsWith("http")) input = "http://" + input;
-      return new URL(input).hostname.replace(/^www\./, "");
-    } catch {
-      return input.split("/")[0].replace(/^www\./, "");
-    }
-  }
+function closeTrail() {
+  document.getElementById("trailModal").style.display = "none";
+}
 
-  /* ---------- RUN DETECTION ---------- */
-  const runBtn = document.getElementById("run");
-  const textarea = document.getElementById("domains");
+document.getElementById("run").onclick = async () => {
+  const domains = [...new Set(
+    document.getElementById("domains").value
+      .split(/\s+/)
+      .map(d => d.trim())
+      .filter(Boolean)
+  )];
+
   const tbody = document.getElementById("results");
+  tbody.innerHTML = "";
 
-  if (!runBtn || !textarea || !tbody) {
-    console.error("Required elements missing");
-    return;
-  }
+  const res = await fetch("/.netlify/functions/detect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domains })
+  });
 
-  runBtn.onclick = async () => {
-    const domains = [...new Set(
-      textarea.value
-        .split(/\s+/)
-        .map(normalizeDomain)
-        .filter(Boolean)
-    )];
+  const data = await res.json();
 
-    if (!domains.length) {
-      alert("Please enter at least one domain.");
-      return;
-    }
+  data.forEach((r, i) => {
+    const id = "trail_" + i;
+    TRAILS[id] = r.http_trail || [];
 
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="6" style="opacity:.6">Checking…</td>
-      </tr>
+    const hasTrail = r.http_trail && r.http_trail.length > 1;
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${r.domain}</td>
+      <td>${r.cloudflare || "-"}</td>
+      <td>${r.registrar || "-"}</td>
+      <td>
+        ${r.http_result}
+        ${hasTrail ? `<button onclick="openTrail('${id}')">View trail</button>` : ""}
+      </td>
+      <td>${r.http_via || "-"}</td>
+      <td>${r.nameservers || "-"}</td>
     `;
-
-    try {
-      const res = await fetch("/.netlify/functions/detect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ domains })
-      });
-
-      const data = await res.json();
-      tbody.innerHTML = "";
-
-      for (const r of data) {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${r.domain}</td>
-          <td>${r.cloudflare || "-"}</td>
-          <td>${r.registrar || "-"}</td>
-          <td>
-            ${
-              r.http_result && r.http_result !== "-"
-                ? (() => {
-                    const is301 = r.http_result.startsWith("301 to ");
-                    const url = is301
-                      ? r.http_result.replace("301 to ", "").trim()
-                      : r.http_result;
-          
-                    return `
-                      <a href="${url}"
-                         target="_blank"
-                         rel="noopener noreferrer"
-                         title="Opens final destination URL"
-                         style="color:var(--accent);text-decoration:underline">
-                        ${r.http_result}
-                      </a>
-                    `;
-                  })()
-                : "-"
-            }
-          </td>
-
-          <td>${r.http_via || "-"}</td>
-          <td>${r.nameservers || "-"}</td>
-        `;
-        tbody.appendChild(tr);
-      }
-    } catch (err) {
-      console.error(err);
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="6" style="color:red">
-            Failed to run detection
-          </td>
-        </tr>
-      `;
-    }
-  };
-});
+    tbody.appendChild(tr);
+  });
+};
 </script>
 
 
 </body>
 </html>
+
 
 
 
