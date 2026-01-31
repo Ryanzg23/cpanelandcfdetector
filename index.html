@@ -90,9 +90,32 @@ th { color: #9aa4ff; text-align: left; }
 </div>
 
 <script>
+/* ---------- DOMAIN NORMALIZER (FRONTEND) ---------- */
+function normalizeDomain(input) {
+  try {
+    input = input.trim();
+    if (!input) return null;
+
+    if (!input.startsWith("http")) {
+      input = "http://" + input;
+    }
+    const url = new URL(input);
+    return url.hostname.replace(/^www\./, "");
+  } catch {
+    return input.split("/")[0].replace(/^www\./, "");
+  }
+}
+
 document.getElementById("run").onclick = async () => {
-  const domains = document.getElementById("domains")
-    .value.split(/\s+/).filter(Boolean);
+  const rawLines = document.getElementById("domains")
+    .value.split(/\s+/)
+    .filter(Boolean);
+
+  const domains = [...new Set(
+    rawLines
+      .map(d => normalizeDomain(d))
+      .filter(Boolean)
+  )];
 
   const tbody = document.getElementById("results");
   tbody.innerHTML = "<tr><td colspan='7'>Checking…</td></tr>";
@@ -139,5 +162,7 @@ document.getElementById("run").onclick = async () => {
 };
 </script>
 
+
 </body>
 </html>
+
