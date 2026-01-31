@@ -1,5 +1,18 @@
 import dns from "dns/promises";
 
+/* ================= DOMAIN NORMALIZER ================= */
+function normalizeDomain(input) {
+  try {
+    if (!input.startsWith("http")) {
+      input = "http://" + input;
+    }
+    const url = new URL(input);
+    return url.hostname.replace(/^www\./, "");
+  } catch {
+    return input.split("/")[0].replace(/^www\./, "");
+  }
+}
+
 /* ================= CSV PARSER ================= */
 function parseCSV(text) {
   const rows = [];
@@ -69,7 +82,11 @@ async function getRegistrar(domain) {
 export async function handler(event) {
   try {
     const body = JSON.parse(event.body || "{}");
-    const domains = Array.isArray(body.domains) ? body.domains : [];
+    const rawDomains = Array.isArray(body.domains) ? body.domains : [];
+
+    const domains = [...new Set(
+      rawDomains.map(d => normalizeDomain(d)).filter(Boolean)
+    )];
 
     if (!domains.length) {
       return {
