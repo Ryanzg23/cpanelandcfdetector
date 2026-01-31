@@ -1,5 +1,19 @@
 import dns from "dns/promises";
 
+
+function inactiveResult(domain) {
+  return {
+    domain,
+    cloudflare: "-",
+    registrar: "-",
+    http_result: "Domain not active",
+    http_via: "-",
+    http_trail: [],
+    nameservers: "-"
+  };
+}
+
+
 /* ================= DOMAIN NORMALIZER ================= */
 function normalizeDomain(input) {
   try {
@@ -133,9 +147,11 @@ export async function handler(event) {
 
   const results = [];
 
-  for (const domain of domains) {
+for (const domain of domains) {
+  try {
     const http = await detectHttp(domain);
 
+    /* ===== pages.dev OVERRIDE ===== */
     if (domain.endsWith(".pages.dev")) {
       results.push({
         domain,
@@ -149,11 +165,14 @@ export async function handler(event) {
       continue;
     }
 
+    /* ===== NS LOOKUP ===== */
     let nameservers = [];
     try {
       nameservers = (await dns.resolveNs(domain))
         .map(n => n.replace(/\.$/, "").toLowerCase());
-    } catch {}
+    } catch {
+      // no NS = possibly inactive, but not fatal
+    }
 
     let cloudflare = "-";
     for (const r of cfNs) {
@@ -170,9 +189,17 @@ export async function handler(event) {
       http_result: http.result,
       http_via: http.via,
       http_trail: http.trail,
-      nameservers: nameservers.join(", ")
+      nameservers: nameservers.length
+        ? nameservers.join(", ")
+        : "-"
     });
+
+  } catch (err) {
+    // 🔥 THIS IS THE KEY FIX
+    results.push(inactiveResult(domain));
   }
+}
+
 
   return {
     statusCode: 200,
@@ -180,3 +207,4 @@ export async function handler(event) {
     body: JSON.stringify(results)
   };
 }
+
