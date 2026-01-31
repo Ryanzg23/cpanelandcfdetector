@@ -127,10 +127,10 @@ export async function handler(event) {
       let nameservers = [];
 
       /* ===== pages.dev OVERRIDE ===== */
-      if (domain.endsWith(".pages.dev") && pagesMap[domain]) {
+      if (domain.endsWith(".pages.dev")) {
         registrar = "Cloudflare, Inc.";
-        cfValue = pagesMap[domain];
-
+        cfValue = pagesMap[domain] || "Not listed";
+      
         results.push({
           domain,
           registrar,
@@ -179,3 +179,4 @@ export async function handler(event) {
     };
   }
 }
+
