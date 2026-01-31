@@ -76,55 +76,67 @@ async function getRegistrar(domain) {
   }
 }
 
-/* ================= HTTP / 301 DETECTION ================= */
-async function detectHttpRedirect(domain) {
-  try {
-    const res = await fetch("http://" + domain, {
-      redirect: "manual"
-    });
+/* ================= HTTP REDIRECT TRAIL ================= */
+async function detectHttpRedirectTrail(domain, maxHops = 5) {
+  const trail = [];
+  let currentUrl = "http://" + domain;
+  let finalVia = "-";
 
-    const status = res.status;
-    const location = res.headers.get("location");
-    const server = res.headers.get("server") || "";
-    const isCloudflare =
-      server.toLowerCase().includes("cloudflare") ||
-      res.headers.has("cf-ray");
+  for (let i = 0; i < maxHops; i++) {
+    try {
+      const res = await fetch(currentUrl, { redirect: "manual" });
+      const status = res.status;
+      const location = res.headers.get("location");
+      const server = res.headers.get("server") || "";
 
-    if (status >= 300 && status < 400 && location) {
-      try {
-        const baseHost = domain.replace(/^www\./, "");
-        const targetUrl = new URL(location, "http://" + domain);
-        const targetHost = targetUrl.hostname.replace(/^www\./, "");
+      const isCloudflare =
+        server.toLowerCase().includes("cloudflare") ||
+        res.headers.has("cf-ray");
 
-        // Same domain, protocol / www cleanup
-        if (targetHost === baseHost) {
-          return {
-            value: `${targetUrl.protocol}//${targetHost}`,
-            source: isCloudflare ? "Cloudflare" : "Origin"
-          };
-        }
+      const via = isCloudflare ? "Cloudflare" : "htaccess";
 
-        // Redirect to different domain
-        return {
-          value: `301 to ${targetUrl.protocol}//${targetHost}`,
-          source: isCloudflare ? "Cloudflare" : "Origin"
-        };
-      } catch {
-        return { value: "301", source: "-" };
+      trail.push({
+        url: currentUrl,
+        status,
+        via
+      });
+
+      if (status >= 300 && status < 400 && location) {
+        finalVia = via;
+        currentUrl = new URL(location, currentUrl).toString();
+        continue;
       }
-    }
 
-    // No redirect
-    return {
-      value: `https://${domain}`,
-      source: "-"
-    };
-  } catch {
-    return { value: "-", source: "-" };
+      break;
+    } catch {
+      break;
+    }
   }
+
+  const first = trail[0];
+  const last = trail[trail.length - 1];
+
+  let result = last ? last.url : "-";
+
+  if (trail.length > 1) {
+    try {
+      const firstHost = new URL(first.url).hostname.replace(/^www\./, "");
+      const lastHost = new URL(last.url).hostname.replace(/^www\./, "");
+
+      if (firstHost !== lastHost) {
+        result = `301 to ${last.url}`;
+      }
+    } catch {}
+  }
+
+  return {
+    result,
+    via: finalVia,
+    trail
+  };
 }
 
-/* ================= MAIN FUNCTION ================= */
+/* ================= MAIN ================= */
 export async function handler(event) {
   try {
     const body = JSON.parse(event.body || "{}");
@@ -174,20 +186,17 @@ export async function handler(event) {
       let cloudflare = "-";
       let nameservers = [];
 
-      /* ===== HTTP CHECK ===== */
-      const httpInfo = await detectHttpRedirect(domain);
+      const httpInfo = await detectHttpRedirectTrail(domain);
 
       /* ===== pages.dev OVERRIDE ===== */
       if (domain.endsWith(".pages.dev")) {
-        registrar = "Cloudflare, Inc.";
-        cloudflare = pagesMap[domain] || "Not listed";
-
         results.push({
           domain,
-          cloudflare,
-          registrar,
-          http_version: httpInfo.value,
-          http_source: httpInfo.source,
+          cloudflare: pagesMap[domain] || "Not listed",
+          registrar: "Cloudflare, Inc.",
+          http_result: httpInfo.result,
+          http_via: httpInfo.via,
+          http_trail: httpInfo.trail,
           nameservers: "-"
         });
         continue;
@@ -199,7 +208,6 @@ export async function handler(event) {
           .map(n => n.toLowerCase().replace(/\.$/, "").trim());
       } catch {}
 
-      /* ===== Cloudflare via NS ===== */
       for (const row of cfEntries) {
         if (
           nameservers.includes(row.ns1) &&
@@ -216,8 +224,9 @@ export async function handler(event) {
         domain,
         cloudflare,
         registrar,
-        http_version: httpInfo.value,
-        http_source: httpInfo.source,
+        http_result: httpInfo.result,
+        http_via: httpInfo.via,
+        http_trail: httpInfo.trail,
         nameservers: nameservers.join(", ")
       });
     }
