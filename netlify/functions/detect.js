@@ -53,7 +53,7 @@ function ipToInt(ip) {
 }
 
 function ipInRange(ip, cidr) {
-  if (!cidr) return false;
+  if (!cidr || !ip) return false;
   if (!cidr.includes("/")) return ip === cidr;
 
   const [range, bits] = cidr.split("/");
@@ -64,12 +64,16 @@ function ipInRange(ip, cidr) {
 /* ---------- MAIN ---------- */
 export async function handler(event) {
   try {
-    const { domains } = JSON.parse(event.body || "{}");
-    if (!domains || !domains.length) {
-      return { statusCode: 400, body: "No domains provided" };
+    const body = JSON.parse(event.body || "{}");
+    const domains = Array.isArray(body.domains) ? body.domains : [];
+
+    if (!domains.length) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "No domains provided" })
+      };
     }
 
-    /* CSV SOURCES */
     const CPANEL_CSV =
       "https://docs.google.com/spreadsheets/d/1AtmjzUR_iGHCUE_tYLMAM9BP8Zx37nGiU0g632f2594/export?format=csv&gid=0";
 
@@ -84,97 +88,84 @@ export async function handler(event) {
     const cpanelList = parseCSV(await cpRes.text());
     const cfList = parseCSV(await cfRes.text());
 
-    /* Normalize cPanel IP list */
     const cpanelIPs = cpanelList.map(r => ({
       name: r["Cpanel Name"],
       ip: r.IP
     }));
 
-    /* Normalize Cloudflare NS */
     const cfEntries = cfList.map(r => ({
       email: r["Cloudflare Email"],
-      ns1: r["Nameserver 1"].toLowerCase().replace(/\.$/, "").trim(),
-      ns2: r["Nameserver 2"].toLowerCase().replace(/\.$/, "").trim()
-    }));
+      ns1: r["Nameserver 1"]?.toLowerCase().replace(/\.$/, "").trim(),
+      ns2: r["Nameserver 2"]?.toLowerCase().replace(/\.$/, "").trim()
+    })).filter(r => r.ns1 && r.ns2);
 
     const results = [];
 
     for (const domain of domains) {
-      let ip = "-";
+      let ips = [];
       let cpanel = "Unknown";
       let cfEmail = "-";
       let nameservers = [];
 
-      /* ---------- A RECORD ---------- */
+      /* ---------- A RECORDS ---------- */
       try {
-        const aRecords = await dns.resolve4(domain);
-        const ips = aRecords.filter(ip => ip.includes("."));
-        ip = ips.join(", ");
-        
-        // Cloudflare IP detection
-        const isCloudflareIP = ips.some(ip =>
-          ip.startsWith("104.") ||
-          ip.startsWith("172.6") ||
-          ip.startsWith("188.114.")
-        );
-        
-        if (isCloudflareIP) {
-          cpanel = "Behind Cloudflare";
-        } else {
-          // Exact IP match (any IP)
-          for (const row of cpanelIPs) {
-            if (ips.includes(row.ip)) {
-              cpanel = row.name;
-              break;
-            }
+        ips = await dns.resolve4(domain);
+      } catch {
+        ips = [];
+      }
+
+      const isCloudflareIP = ips.some(ip =>
+        ip.startsWith("104.") ||
+        ip.startsWith("172.6") ||
+        ip.startsWith("188.114.")
+      );
+
+      if (isCloudflareIP) {
+        cpanel = "Behind Cloudflare";
+      } else {
+        // Exact IP match (any A record)
+        for (const row of cpanelIPs) {
+          if (ips.includes(row.ip)) {
+            cpanel = row.name;
+            break;
           }
         }
 
-        const isCloudflareIP =
-          ip.startsWith("104.") ||
-          ip.startsWith("172.6") ||
-          ip.startsWith("188.114.");
-
-        if (isCloudflareIP) {
-          cpanel = "Behind Cloudflare";
-        } else {
-          /* 1) Exact IP match */
-          const exact = cpanelIPs.find(r => r.ip === ip);
-          if (exact) {
-            cpanel = exact.name;
-          } else {
-            /* 2) CIDR / shared IP match */
-            for (const row of cpanelIPs) {
+        // CIDR fallback
+        if (cpanel === "Unknown") {
+          for (const row of cpanelIPs) {
+            for (const ip of ips) {
               if (ipInRange(ip, row.ip)) {
                 cpanel = row.name;
                 break;
               }
             }
+            if (cpanel !== "Unknown") break;
           }
         }
-      } catch {}
+      }
 
-      /* ---------- NS RECORD ---------- */
+      /* ---------- NS RECORDS ---------- */
       try {
-        const ns = await dns.resolveNs(domain);
-        nameservers = ns
-          .map(n => n.toLowerCase().replace(/\.$/, "").trim())
-          .sort();
+        nameservers = (await dns.resolveNs(domain))
+          .map(n => n.toLowerCase().replace(/\.$/, "").trim());
+      } catch {
+        nameservers = [];
+      }
 
-        for (const row of cfEntries) {
-          if (
-            nameservers.includes(row.ns1) &&
-            nameservers.includes(row.ns2)
-          ) {
-            cfEmail = row.email;
-            break;
-          }
+      for (const row of cfEntries) {
+        if (
+          nameservers.includes(row.ns1) &&
+          nameservers.includes(row.ns2)
+        ) {
+          cfEmail = row.email;
+          break;
         }
-      } catch {}
+      }
 
       results.push({
         domain,
-        ip,
+        ip: ips.join(", "),
         cpanel,
         cloudflare_email: cfEmail,
         nameservers: nameservers.join(", ")
@@ -187,7 +178,10 @@ export async function handler(event) {
       body: JSON.stringify(results)
     };
   } catch (err) {
-    return { statusCode: 500, body: err.toString() };
+    console.error("Function crash:", err);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: err.message })
+    };
   }
 }
-
