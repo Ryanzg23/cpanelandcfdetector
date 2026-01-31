@@ -2,25 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>cPanel & Cloudflare Bulk Detector</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Bulk Domain Detector</title>
 
 <style>
 body {
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
   background: #0f1220;
   color: #eaeaf0;
-  margin: 0;
   padding: 20px;
 }
-.container {
-  max-width: 1200px;
-  margin: auto;
-}
-h1 {
-  font-size: 24px;
-  margin-bottom: 12px;
-}
+.container { max-width: 1200px; margin: auto; }
 .card {
   background: #171a2e;
   border-radius: 10px;
@@ -43,11 +35,6 @@ button {
   padding: 10px 16px;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 14px;
-}
-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 table {
   width: 100%;
@@ -60,43 +47,27 @@ th, td {
   font-size: 13px;
   vertical-align: top;
 }
-th {
-  color: #9aa4ff;
-  text-align: left;
-}
-.badge {
-  padding: 3px 8px;
-  border-radius: 12px;
-  font-size: 12px;
-  display: inline-block;
-}
-.yes { background: #1e7f43; }
-.no { background: #7f1e1e; }
-.small {
-  font-size: 11px;
-  opacity: 0.75;
-  margin-top: 2px;
-}
-.status {
-  font-size: 13px;
-  opacity: 0.8;
-}
+th { color: #9aa4ff; text-align: left; }
 </style>
 </head>
 
 <body>
 <div class="container">
 
-<h1>Bulk cPanel & Cloudflare Detector</h1>
+<h1>Bulk Domain Detector</h1>
 
 <div class="card">
   <b>Domains (one per line)</b>
-  <textarea id="domains" placeholder="example.com"></textarea>
+  <textarea id="domains"></textarea>
 </div>
 
 <div class="card">
+  <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+    <input type="checkbox" id="dnsOnlyToggle" checked>
+    Attempt cPanel detection only if DNS-only
+  </label>
+  <br>
   <button id="run">Run Detection</button>
-  <span id="status" class="status"></span>
 </div>
 
 <div class="card">
@@ -107,6 +78,8 @@ th {
         <th>IP</th>
         <th>Registrar</th>
         <th>Cloudflare</th>
+        <th>CF Proxy</th>
+        <th>cPanel</th>
         <th>Nameservers</th>
       </tr>
     </thead>
@@ -117,85 +90,54 @@ th {
 </div>
 
 <script>
-const runBtn = document.getElementById("run");
-const resultsEl = document.getElementById("results");
-const statusEl = document.getElementById("status");
+document.getElementById("run").onclick = async () => {
+  const domains = document.getElementById("domains")
+    .value.split(/\s+/).filter(Boolean);
 
-runBtn.onclick = async () => {
-  const domains = document
-    .getElementById("domains")
-    .value
-    .split(/\s+/)
-    .filter(Boolean);
+  const tbody = document.getElementById("results");
+  tbody.innerHTML = "<tr><td colspan='7'>Checking…</td></tr>";
 
-  if (!domains.length) {
-    alert("Please enter at least one domain.");
-    return;
+  const res = await fetch("/.netlify/functions/detect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domains })
+  });
+
+  const data = await res.json();
+  tbody.innerHTML = "";
+
+  const dnsOnlyMode = document.getElementById("dnsOnlyToggle").checked;
+
+  for (const r of data) {
+    const cpanelDisplay =
+      dnsOnlyMode && r.cf_proxy === "Proxied"
+        ? "Skipped (Cloudflare)"
+        : r.cpanel || "-";
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${r.domain}</td>
+      <td>${r.ip || "-"}</td>
+      <td>${r.registrar || "-"}</td>
+
+      <td>
+        ${
+          r.cloudflare_email && r.cloudflare_email !== "-"
+            ? `<div style="font-size:14px;font-weight:600;color:#7dffb3">
+                 ${r.cloudflare_email}
+               </div>`
+            : `<span style="opacity:.5">-</span>`
+        }
+      </td>
+
+      <td>${r.cf_proxy}</td>
+      <td>${cpanelDisplay}</td>
+      <td>${r.nameservers || "-"}</td>
+    `;
+    tbody.appendChild(tr);
   }
-
-  runBtn.disabled = true;
-  statusEl.textContent = "Checking domains…";
-  resultsEl.innerHTML = "";
-
-  try {
-    const res = await fetch("/.netlify/functions/detect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ domains })
-    });
-
-    if (!res.ok) {
-      throw new Error("Function error: " + res.status);
-    }
-
-    const data = await res.json();
-
-    if (!Array.isArray(data)) {
-      throw new Error("Invalid response from function");
-    }
-
-    for (const r of data) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${r.domain}</td>
-        <td>${r.ip || "-"}</td>
-      
-        <td>
-          ${
-            r.registrar && r.registrar !== "-"
-              ? `<div style="font-size:14px;font-weight:600">${r.registrar}</div>`
-              : `<span style="opacity:.5">-</span>`
-          }
-        </td>
-      
-        <td>
-          ${
-            r.cloudflare_email && r.cloudflare_email !== "-"
-              ? `<div style="font-size:14px;font-weight:600;color:#7dffb3">
-                   ${r.cloudflare_email}
-                 </div>`
-              : `<span style="opacity:.5">-</span>`
-          }
-        </td>
-      
-        <td>${r.nameservers || "-"}</td>
-      `;
-      resultsEl.appendChild(tr);
-    }
-
-    statusEl.textContent = `Done (${data.length} domains checked)`;
-  } catch (err) {
-    console.error(err);
-    alert("Error: " + err.message);
-    statusEl.textContent = "Error occurred";
-  }
-
-  runBtn.disabled = false;
 };
 </script>
 
 </body>
 </html>
-
-
-
