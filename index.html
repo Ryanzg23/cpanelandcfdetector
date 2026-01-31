@@ -1,141 +1,108 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Bulk Domain Detector</title>
 
 <style>
 :root {
-  --bg: #f5f7fb;
+  --bg: #f8fafc;
   --card: #ffffff;
-  --text: #1f2937;
-  --muted: #6b7280;
+  --text: #111827;
   --border: #e5e7eb;
   --accent: #2563eb;
 }
 
 body.dark {
-  --bg: #0f1220;
-  --card: #171a2e;
-  --text: #eaeaf0;
-  --muted: #9ca3af;
-  --border: #2a2f55;
-  --accent: #4f7cff;
+  --bg: #0f172a;
+  --card: #020617;
+  --text: #e5e7eb;
+  --border: #1e293b;
+  --accent: #60a5fa;
 }
 
 body {
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   background: var(--bg);
   color: var(--text);
-  margin: 0;
-  padding: 20px;
-  transition: background .2s, color .2s;
 }
-.header {
+
+.container {
+  max-width: 1200px;
+  margin: 32px auto;
+  padding: 0 16px;
+}
+
+header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
 }
 
-.theme-btn {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 6px 12px;
-  border-radius: 20px;
-  cursor: pointer;
-  font-size: 13px;
+h1 {
+  font-size: 24px;
+  margin: 0;
 }
 
-.theme-btn:hover {
-  background: var(--border);
+button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 8px;
+  cursor: pointer;
 }
-.container {
-  max-width: 1200px;
-  margin: auto;
+
+button:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+button:hover:not(:disabled) {
+  filter: brightness(.95);
 }
 
 .card {
   background: var(--card);
-  border-radius: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
   padding: 16px;
   margin-bottom: 16px;
-  border: 1px solid var(--border);
 }
 
 textarea {
   width: 100%;
   min-height: 120px;
-  box-sizing: border-box;
-  background: transparent;
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 10px;
   resize: vertical;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--text);
 }
-
-
-button {
-  background: var(--accent);
-  border: none;
-  color: white;
-  padding: 10px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-button#run {
-  transition: background-color .2s, transform .1s, box-shadow .2s;
-}
-
-button#run:hover {
-  background-color: #1d4ed8; /* slightly darker accent */
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
-  transform: translateY(-1px);
-}
-
-button#run:active {
-  transform: translateY(0);
-  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.2);
-}
-
 
 table {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 10px;
+  font-size: 14px;
 }
 
 th, td {
+  padding: 10px;
   border-bottom: 1px solid var(--border);
-  padding: 8px;
-  font-size: 13px;
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 th {
-  color: var(--muted);
   text-align: left;
+  font-weight: 600;
+  color: #64748b;
 }
 
-.theme-toggle {
-  position: fixed;
-  top: 16px;
-  right: 20px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.theme-toggle input {
-  width: 40px;
-  height: 20px;
-}
-/* Zebra striping for table rows */
 tbody tr:nth-child(even) {
   background: rgba(0,0,0,.03);
 }
@@ -143,26 +110,31 @@ body.dark tbody tr:nth-child(even) {
   background: rgba(255,255,255,.04);
 }
 
-/* Optional: subtle hover highlight */
-tbody tr:hover {
-  background-color: rgba(37, 99, 235, 0.08);
+.action-link {
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+.action-link:hover {
+  text-decoration: underline;
 }
 
-
+/* Modal */
 .modal {
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,.45);
-  z-index: 999;
+  background: rgba(0,0,0,.5);
+  z-index: 1000;
 }
 
 .modal-content {
   background: var(--card);
   color: var(--text);
   max-width: 640px;
-  margin: 8vh auto;
-  border-radius: 10px;
+  margin: 10vh auto;
+  border-radius: 12px;
   overflow: hidden;
 }
 
@@ -186,79 +158,25 @@ tbody tr:hover {
   cursor: pointer;
   color: var(--text);
 }
-td {
-  vertical-align: middle;
-}
-.toast {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  background: #111827;
-  color: #fff;
-  padding: 10px 14px;
-  border-radius: 8px;
-  font-size: 13px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity .3s, transform .3s;
-  transform: translateY(10px);
-  z-index: 1000;
-}
-
-body.dark .toast {
-  background: #e5e7eb;
-  color: #111827;
-}
-
-.toast.show {
-  opacity: 1;
-  transform: translateY(0);
-}
-.action-link {
-  font-size: 12px;
-  color: var(--accent);
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.action-link:hover {
-  text-decoration: underline;
-}
-
-.action-link.copied {
-  color: #16a34a; /* green */
-  font-weight: 600;
-  cursor: default;
-  text-decoration: none;
-}
-
-
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
-}
 </style>
-
 </head>
 
 <body>
 <div class="container">
 
-<div class="header">
+<header>
   <h1>Bulk Domain Detector</h1>
-  <button id="themeToggle" class="theme-btn">🌙 Dark</button>
-</div>
-
+  <button id="themeToggle">🌙 Dark</button>
+</header>
 
 <div class="card">
-  <b>Domains (one per line)</b>
-  <textarea id="domains"></textarea>
+  <label><strong>Domains (one per line)</strong></label>
+  <textarea id="domains" placeholder="example.com"></textarea>
 </div>
 
 <div class="card">
   <button id="run">Run Detection</button>
 </div>
-
 
 <div class="card">
   <table>
@@ -272,14 +190,13 @@ body.dark .toast {
         <th>Nameservers</th>
       </tr>
     </thead>
-  <tbody id="results"></tbody>
-
+    <tbody id="results"></tbody>
   </table>
 </div>
 
 </div>
 
-
+<!-- Redirect Trail Modal -->
 <div id="trailModal" class="modal">
   <div class="modal-content">
     <div class="modal-header">
@@ -290,84 +207,48 @@ body.dark .toast {
   </div>
 </div>
 
-<div id="toast" class="toast">Copied</div>
 <script>
 document.addEventListener("DOMContentLoaded", () => {
 
-  /* ================= GLOBAL STATE ================= */
   let isRunning = false;
-  window.TRAILS = {}; // must be global for modal
+  window.TRAILS = {};
 
-  /* ================= THEME TOGGLE ================= */
+  /* Theme toggle */
   const themeBtn = document.getElementById("themeToggle");
-  if (themeBtn) {
-    function setTheme(theme) {
-      document.body.classList.toggle("dark", theme === "dark");
-      themeBtn.textContent = theme === "dark" ? "🌞 Light" : "🌙 Dark";
-      localStorage.setItem("theme", theme);
-    }
-
-    setTheme(localStorage.getItem("theme") || "light");
-
-    themeBtn.addEventListener("click", () => {
-      setTheme(document.body.classList.contains("dark") ? "light" : "dark");
-    });
+  function setTheme(t) {
+    document.body.classList.toggle("dark", t === "dark");
+    themeBtn.textContent = t === "dark" ? "🌞 Light" : "🌙 Dark";
+    localStorage.setItem("theme", t);
   }
+  setTheme(localStorage.getItem("theme") || "light");
+  themeBtn.onclick = () => {
+    setTheme(document.body.classList.contains("dark") ? "light" : "dark");
+  };
 
-  /* ================= MODAL ================= */
-  window.openTrail = function (id) {
+  /* Modal */
+  window.openTrail = function(id) {
     const trail = window.TRAILS[id];
-    if (!trail || !trail.length) return;
-
-    const body = document.getElementById("trailBody");
-    body.innerHTML = trail.map(t =>
-      `${t.url}
-       <span style="opacity:.6">
-         (${t.status}${t.status >= 300 && t.status < 400 ? ", via " + t.via : ""})
-       </span>`
-    ).join("<br>");
-
+    if (!trail) return;
+    document.getElementById("trailBody").innerHTML =
+      trail.map(t =>
+        `${t.url}
+         <span style="opacity:.6">
+           (${t.status}${t.status >= 300 && t.status < 400 ? ", via " + t.via : ""})
+         </span>`
+      ).join("<br>");
     document.getElementById("trailModal").style.display = "block";
   };
 
-  window.closeTrail = function () {
+  window.closeTrail = function() {
     document.getElementById("trailModal").style.display = "none";
   };
 
-  /* ================= COPY (ChatGPT STYLE) ================= */
-  window.copyNameservers = function (el, domain, nameservers, registrar) {
-    if (!nameservers) return;
-
-    const text =
-      domain + "\n" +
-      nameservers.split(",").map(ns => ns.trim()).join("\n") +
-      "\nRegistrar: " + (registrar || "-");
-
-    navigator.clipboard.writeText(text).then(() => {
-      const original = el.textContent;
-      el.textContent = "Copied";
-      el.classList.add("copied");
-      el.style.pointerEvents = "none";
-
-      setTimeout(() => {
-        el.textContent = original;
-        el.classList.remove("copied");
-        el.style.pointerEvents = "auto";
-      }, 2000);
-    });
-  };
-
-  /* ================= RUN DETECTION ================= */
+  /* Run detection */
   const runBtn = document.getElementById("run");
   const textarea = document.getElementById("domains");
   const tbody = document.getElementById("results");
 
-  if (!runBtn || !textarea || !tbody) {
-    console.error("Required elements missing");
-    return;
-  }
-
-  runBtn.addEventListener("click", async () => {
+  runBtn.onclick = async () => {
     if (isRunning) return;
     isRunning = true;
 
@@ -375,10 +256,7 @@ document.addEventListener("DOMContentLoaded", () => {
     runBtn.textContent = "Checking…";
 
     const domains = [...new Set(
-      textarea.value
-        .split(/\s+/)
-        .map(d => d.trim())
-        .filter(Boolean)
+      textarea.value.split(/\s+/).map(d => d.trim()).filter(Boolean)
     )];
 
     tbody.innerHTML = `
@@ -405,45 +283,21 @@ document.addEventListener("DOMContentLoaded", () => {
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td>${r.domain}</td>
-
           <td>${r.cloudflare || "-"}</td>
-
           <td>
             ${r.http_result || "-"}
             ${
               r.http_trail && r.http_trail.length > 1
-                ? ` <a class="action-link"
-                     onclick="openTrail('${id}')">(view trail)</a>`
+                ? ` <a class="action-link" onclick="openTrail('${id}')">(view trail)</a>`
                 : ""
             }
           </td>
-
           <td>${r.http_via || "-"}</td>
-
           <td>${r.registrar || "-"}</td>
-
-          <td style="position:relative">
+          <td>
             ${
               r.nameservers && r.nameservers !== "-"
-                ? `
-                  <div style="position:absolute;top:6px;right:8px">
-                    <a class="action-link"
-                       onclick="copyNameservers(
-                         this,
-                         '${r.domain}',
-                         '${r.nameservers}',
-                         '${r.registrar || "-"}'
-                       )">
-                      Copy
-                    </a>
-                  </div>
-
-                  <div style="padding-top:16px">
-                    ${r.nameservers.split(",").map(ns => `
-                      <div class="mono">${ns.trim()}</div>
-                    `).join("")}
-                  </div>
-                `
+                ? r.nameservers.split(",").map(ns => `<div>${ns.trim()}</div>`).join("")
                 : "-"
             }
           </td>
@@ -451,8 +305,7 @@ document.addEventListener("DOMContentLoaded", () => {
         tbody.appendChild(tr);
       });
 
-    } catch (err) {
-      console.error(err);
+    } catch {
       tbody.innerHTML = `
         <tr>
           <td colspan="6" style="color:#dc2626">
@@ -465,34 +318,8 @@ document.addEventListener("DOMContentLoaded", () => {
     runBtn.disabled = false;
     runBtn.textContent = "Run Detection";
     isRunning = false;
-  });
+  };
 });
 </script>
-
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
