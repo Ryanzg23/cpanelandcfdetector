@@ -140,6 +140,22 @@ tbody tr:hover {
   background: var(--hover);
 }
 
+/* Column sizing */
+th.cloudflare-col,
+td.cloudflare-col {
+  min-width: 195px;
+}
+
+th.http-col,
+td.http-col {
+  min-width: 300px;
+}
+
+th.via-col,
+td.via-col {
+  min-width: 95px;
+}
+
 .action-link {
   font-size: 12px;
   color: var(--accent);
@@ -280,9 +296,9 @@ tbody tr:hover {
     <thead>
       <tr>
         <th>Domain</th>
-        <th>Cloudflare</th>
-        <th>HTTP Result</th>
-        <th>301 Via</th>
+        <th class="cloudflare-col">Cloudflare</th>
+        <th class="http-col">HTTP Result</th>
+        <th class="via-col">301 via</th>
         <th>Registrar</th>
         <th>Nameservers</th>
       </tr>
@@ -467,6 +483,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 </body>
 </html>
+
 
 
 
