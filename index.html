@@ -92,11 +92,7 @@ th { color: #9aa4ff; text-align: left; }
 function normalizeDomain(input) {
   try {
     input = input.trim();
-    if (!input) return null;
-
-    if (!input.startsWith("http")) {
-      input = "http://" + input;
-    }
+    if (!input.startsWith("http")) input = "http://" + input;
     const url = new URL(input);
     return url.hostname.replace(/^www\./, "");
   } catch {
@@ -110,13 +106,11 @@ document.getElementById("run").onclick = async () => {
     .filter(Boolean);
 
   const domains = [...new Set(
-    rawLines
-      .map(d => normalizeDomain(d))
-      .filter(Boolean)
+    rawLines.map(d => normalizeDomain(d)).filter(Boolean)
   )];
 
   const tbody = document.getElementById("results");
-  tbody.innerHTML = "<tr><td colspan='7'>Checking…</td></tr>";
+  tbody.innerHTML = "<tr><td colspan='4'>Checking…</td></tr>";
 
   const res = await fetch("/.netlify/functions/detect", {
     method: "POST",
@@ -127,32 +121,20 @@ document.getElementById("run").onclick = async () => {
   const data = await res.json();
   tbody.innerHTML = "";
 
-  const dnsOnlyMode = document.getElementById("dnsOnlyToggle").checked;
-
   for (const r of data) {
-    const cpanelDisplay =
-      dnsOnlyMode && r.cf_proxy === "Proxied"
-        ? "Skipped (Cloudflare)"
-        : r.cpanel || "-";
-
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${r.domain}</td>
-      <td>${r.ip || "-"}</td>
       <td>${r.registrar || "-"}</td>
-
       <td>
         ${
-          r.cloudflare_email && r.cloudflare_email !== "-"
+          r.cloudflare && r.cloudflare !== "-"
             ? `<div style="font-size:14px;font-weight:600;color:#7dffb3">
-                 ${r.cloudflare_email}
+                 ${r.cloudflare}
                </div>`
             : `<span style="opacity:.5">-</span>`
         }
       </td>
-
-      <td>${r.cf_proxy}</td>
-      <td>${cpanelDisplay}</td>
       <td>${r.nameservers || "-"}</td>
     `;
     tbody.appendChild(tr);
@@ -163,5 +145,6 @@ document.getElementById("run").onclick = async () => {
 
 </body>
 </html>
+
 
 
