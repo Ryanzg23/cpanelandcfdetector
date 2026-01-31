@@ -13,7 +13,7 @@ function normalizeDomain(input) {
 }
 
 /* ================= URL NORMALIZER ================= */
-/* preserves path, query, hash (for HTTP detection) */
+/* preserves path, query, hash */
 function normalizeUrl(input) {
   input = input.trim();
   if (!input.startsWith("http://") && !input.startsWith("https://")) {
@@ -105,7 +105,7 @@ async function detectHttp(inputUrl, maxHops = 6) {
 
     let finalUrl = currentUrl;
 
-    /* HTTPS preference (preserves path) */
+    // HTTPS preference (preserves path)
     if (finalUrl.startsWith("http://")) {
       try {
         const httpsUrl = finalUrl.replace(/^http:/, "https:");
@@ -150,10 +150,10 @@ async function detectHttp(inputUrl, maxHops = 6) {
   }
 }
 
-/* ================= FALLBACK RESULT ================= */
-function inactiveResult(domain) {
+/* ================= FALLBACK ================= */
+function inactiveResult(input) {
   return {
-    domain,
+    domain: input,
     cloudflare: "-",
     registrar: "-",
     http_result: "Domain not active",
@@ -161,6 +161,26 @@ function inactiveResult(domain) {
     http_trail: [],
     nameservers: "-"
   };
+}
+
+/* ================= PARALLEL RUNNER ================= */
+async function runWithConcurrency(items, limit, worker) {
+  const results = [];
+  const queue = [...items];
+
+  const runners = Array.from({ length: limit }, async () => {
+    while (queue.length) {
+      const item = queue.shift();
+      try {
+        results.push(await worker(item));
+      } catch {
+        results.push(inactiveResult(item));
+      }
+    }
+  });
+
+  await Promise.all(runners);
+  return results;
 }
 
 /* ================= MAIN HANDLER ================= */
@@ -196,57 +216,49 @@ export async function handler(event) {
       ns2: r["Nameserver 2"]?.toLowerCase()
     }));
 
-    const results = [];
-
-    for (const input of inputs) {
+    const results = await runWithConcurrency(inputs, 5, async (input) => {
       const hostname = normalizeDomain(input);
 
-      try {
-        const http = await detectHttp(input);
+      const http = await detectHttp(input);
 
-        /* ===== pages.dev ===== */
-        if (hostname.endsWith(".pages.dev")) {
-          results.push({
-            domain: input,
-            cloudflare: pagesMap[hostname] || "Not listed",
-            registrar: "Cloudflare, Inc.",
-            http_result: http.result,
-            http_via: http.via,
-            http_trail: http.trail,
-            nameservers: "-"
-          });
-          continue;
-        }
-
-        /* ===== NS LOOKUP ===== */
-        let nameservers = [];
-        try {
-          nameservers = (await dns.resolveNs(hostname))
-            .map(n => n.replace(/\.$/, "").toLowerCase());
-        } catch {}
-
-        let cloudflare = "-";
-        for (const r of cfNs) {
-          if (nameservers.includes(r.ns1) && nameservers.includes(r.ns2)) {
-            cloudflare = r.email;
-            break;
-          }
-        }
-
-        results.push({
+      /* ===== pages.dev ===== */
+      if (hostname.endsWith(".pages.dev")) {
+        return {
           domain: input,
-          cloudflare,
-          registrar: await getRegistrar(hostname),
+          cloudflare: pagesMap[hostname] || "Not listed",
+          registrar: "Cloudflare, Inc.",
           http_result: http.result,
           http_via: http.via,
           http_trail: http.trail,
-          nameservers: nameservers.length ? nameservers.join(", ") : "-"
-        });
-
-      } catch {
-        results.push(inactiveResult(input));
+          nameservers: "-"
+        };
       }
-    }
+
+      /* ===== NS LOOKUP ===== */
+      let nameservers = [];
+      try {
+        nameservers = (await dns.resolveNs(hostname))
+          .map(n => n.replace(/\.$/, "").toLowerCase());
+      } catch {}
+
+      let cloudflare = "-";
+      for (const r of cfNs) {
+        if (nameservers.includes(r.ns1) && nameservers.includes(r.ns2)) {
+          cloudflare = r.email;
+          break;
+        }
+      }
+
+      return {
+        domain: input,
+        cloudflare,
+        registrar: await getRegistrar(hostname),
+        http_result: http.result,
+        http_via: http.via,
+        http_trail: http.trail,
+        nameservers: nameservers.length ? nameservers.join(", ") : "-"
+      };
+    });
 
     return {
       statusCode: 200,
