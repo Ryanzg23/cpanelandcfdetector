@@ -5,7 +5,7 @@ export async function handler(event) {
       return { statusCode: 400, body: "Invalid input" };
     }
 
-    // ===== CSV SOURCES =====
+    /* ========= CSV SOURCES ========= */
     const CF_CSV =
       "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ2U3uOILXKnV9VTDJgH2LzuP9uG2SGRf_w65CSL9VXcwIyFrWNNpmycqSQwgl5SwuP6N2HQI8ibXWv/pub?output=csv&gid=281551120";
 
@@ -19,6 +19,7 @@ export async function handler(event) {
 
     for (const input of domains) {
       const domainInput = input.trim();
+      const hostname = getHostname(domainInput);
       const startUrl = normalizeUrl(domainInput);
 
       let cloudflare = "-";
@@ -28,60 +29,54 @@ export async function handler(event) {
       let http_via = "-";
       let http_trail = [];
 
-      /* ================= DNS ================= */
+      /* ========= DNS (Nameservers) ========= */
+      let foundNS = [];
       try {
         const nsRes = await fetch(
-          `https://dns.google/resolve?name=${getHostname(domainInput)}&type=NS`
+          `https://dns.google/resolve?name=${hostname}&type=NS`
         );
         const nsJson = await nsRes.json();
 
         if (nsJson.Answer) {
-          const foundNS = nsJson.Answer.map(n =>
-            n.data.replace(/\.$/, "")
+          foundNS = nsJson.Answer.map(n =>
+            normalizeNS(n.data)
           );
           nameservers = foundNS.join(", ");
-
-          // Cloudflare match (exact 2 NS)
-         for (const row of cfList) {
-  // normalize row keys
-  const keys = Object.keys(row).reduce((acc, k) => {
-    acc[k.trim().toLowerCase()] = row[k];
-    return acc;
-  }, {});
-
-  const ns1 = keys.ns1?.trim().toLowerCase().replace(/\.$/, "");
-  const ns2 = keys.ns2?.trim().toLowerCase().replace(/\.$/, "");
-  const email = keys["cloudflare email"]?.trim();
-
-  if (
-    ns1 &&
-    ns2 &&
-    foundNS.some(ns => ns.toLowerCase() === ns1) &&
-    foundNS.some(ns => ns.toLowerCase() === ns2)
-  ) {
-    cloudflare = email || "-";
-    break;
-  }
-}
-
         }
       } catch {}
 
-      /* ================= pages.dev ================= */
-      if (getHostname(domainInput).endsWith(".pages.dev")) {
-        const match = pagesList.find(
-          r =>
-            normalizeDomain(r.Domain) ===
-            normalizeDomain(domainInput)
+      /* ========= CLOUDFLARE (normal domains) ========= */
+      if (foundNS.length) {
+        const foundSet = new Set(foundNS);
+
+        for (const row of cfList) {
+          const normalizedRow = {};
+          for (const k in row) {
+            normalizedRow[k.trim().toLowerCase()] = row[k]?.trim();
+          }
+
+          const ns1 = normalizeNS(normalizedRow.ns1 || "");
+          const ns2 = normalizeNS(normalizedRow.ns2 || "");
+          const email = normalizedRow["cloudflare email"];
+
+          if (ns1 && ns2 && foundSet.has(ns1) && foundSet.has(ns2)) {
+            cloudflare = email || "-";
+            break;
+          }
+        }
+      }
+
+      /* ========= pages.dev ========= */
+      if (hostname.endsWith(".pages.dev")) {
+        const match = pagesList.find(r =>
+          normalizeDomain(r.Domain) === normalizeDomain(hostname)
         );
         cloudflare = match ? match.Email : "Not listed";
       }
 
-      /* ================= REGISTRAR ================= */
+      /* ========= REGISTRAR ========= */
       try {
-        const whoisRes = await fetch(
-          `https://rdap.org/domain/${getHostname(domainInput)}`
-        );
+        const whoisRes = await fetch(`https://rdap.org/domain/${hostname}`);
         const whois = await whoisRes.json();
         registrar =
           whois.registrar?.name ||
@@ -90,7 +85,7 @@ export async function handler(event) {
           "-";
       } catch {}
 
-      /* ================= HTTP REDIRECTS ================= */
+      /* ========= HTTP REDIRECTS ========= */
       try {
         const redirectData = await followRedirects(startUrl);
         http_trail = redirectData.trail;
@@ -133,7 +128,7 @@ export async function handler(event) {
   }
 }
 
-/* ================= HELPERS ================= */
+/* ========= HELPERS ========= */
 
 function normalizeUrl(input) {
   if (!/^https?:\/\//i.test(input)) return "http://" + input;
@@ -143,11 +138,16 @@ function normalizeUrl(input) {
 function getHostname(input) {
   return normalizeUrl(input)
     .replace(/^https?:\/\//, "")
-    .split("/")[0];
+    .split("/")[0]
+    .toLowerCase();
 }
 
 function normalizeDomain(d) {
-  return d.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  return d.replace(/^https?:\/\//, "").replace(/\/$/, "").toLowerCase();
+}
+
+function normalizeNS(ns) {
+  return ns.toLowerCase().trim().replace(/\.$/, "");
 }
 
 async function loadCsv(url) {
@@ -155,9 +155,12 @@ async function loadCsv(url) {
   const text = await res.text();
   const [header, ...rows] = text.split(/\r?\n/);
   const keys = header.split(",").map(h => h.trim());
+
   return rows.map(r => {
     const obj = {};
-    r.split(",").forEach((v, i) => (obj[keys[i]] = v?.replace(/^"|"$/g, "").trim()));
+    r.split(",").forEach((v, i) => {
+      obj[keys[i]] = v?.replace(/^"|"$/g, "").trim();
+    });
     return obj;
   });
 }
@@ -188,7 +191,6 @@ async function followRedirects(startUrl, maxHops = 10) {
     break;
   }
 
-  // HTTPS preference
   if (currentUrl.startsWith("http://")) {
     try {
       const httpsUrl = currentUrl.replace(/^http:/, "https:");
@@ -207,4 +209,3 @@ async function followRedirects(startUrl, maxHops = 10) {
 
   return { trail };
 }
-
