@@ -280,7 +280,7 @@ document.addEventListener("DOMContentLoaded", () => {
                       <a href="${url}"
                          target="_blank"
                          rel="noopener noreferrer"
-                         title="Click to view final URL. Full 301 trail available."
+                         title="Opens final destination URL"
                          style="color:var(--accent);text-decoration:underline">
                         ${r.http_result}
                       </a>
@@ -289,6 +289,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 : "-"
             }
           </td>
+
           <td>${r.http_via || "-"}</td>
           <td>${r.nameservers || "-"}</td>
         `;
@@ -311,6 +312,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 </body>
 </html>
+
 
 
 
