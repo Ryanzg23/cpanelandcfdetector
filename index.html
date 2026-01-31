@@ -292,155 +292,186 @@ body.dark .toast {
 
 <div id="toast" class="toast">Copied</div>
 <script>
-let TRAILS = {};
-let isRunning = false;
+document.addEventListener("DOMContentLoaded", () => {
 
-/* ---------- MODAL ---------- */
-function openTrail(id) {
-  const trail = TRAILS[id];
-  if (!trail) return;
+  /* ================= GLOBAL STATE ================= */
+  let isRunning = false;
+  window.TRAILS = {}; // must be global for modal
 
-  document.getElementById("trailBody").innerHTML =
-    trail.map(t =>
+  /* ================= THEME TOGGLE ================= */
+  const themeBtn = document.getElementById("themeToggle");
+  if (themeBtn) {
+    function setTheme(theme) {
+      document.body.classList.toggle("dark", theme === "dark");
+      themeBtn.textContent = theme === "dark" ? "🌞 Light" : "🌙 Dark";
+      localStorage.setItem("theme", theme);
+    }
+
+    setTheme(localStorage.getItem("theme") || "light");
+
+    themeBtn.addEventListener("click", () => {
+      setTheme(document.body.classList.contains("dark") ? "light" : "dark");
+    });
+  }
+
+  /* ================= MODAL ================= */
+  window.openTrail = function (id) {
+    const trail = window.TRAILS[id];
+    if (!trail || !trail.length) return;
+
+    const body = document.getElementById("trailBody");
+    body.innerHTML = trail.map(t =>
       `${t.url}
        <span style="opacity:.6">
          (${t.status}${t.status >= 300 && t.status < 400 ? ", via " + t.via : ""})
        </span>`
     ).join("<br>");
 
-  document.getElementById("trailModal").style.display = "block";
-}
+    document.getElementById("trailModal").style.display = "block";
+  };
 
-function closeTrail() {
-  document.getElementById("trailModal").style.display = "none";
-}
+  window.closeTrail = function () {
+    document.getElementById("trailModal").style.display = "none";
+  };
 
-/* ---------- THEME TOGGLE ---------- */
-const themeBtn = document.getElementById("themeToggle");
+  /* ================= COPY (ChatGPT STYLE) ================= */
+  window.copyNameservers = function (el, domain, nameservers, registrar) {
+    if (!nameservers) return;
 
-function setTheme(theme) {
-  document.body.classList.toggle("dark", theme === "dark");
-  themeBtn.textContent = theme === "dark" ? "🌞 Light" : "🌙 Dark";
-  localStorage.setItem("theme", theme);
-}
+    const text =
+      domain + "\n" +
+      nameservers.split(",").map(ns => ns.trim()).join("\n") +
+      "\nRegistrar: " + (registrar || "-");
 
-// init
-setTheme(localStorage.getItem("theme") || "light");
+    navigator.clipboard.writeText(text).then(() => {
+      const original = el.textContent;
+      el.textContent = "Copied";
+      el.classList.add("copied");
+      el.style.pointerEvents = "none";
 
-themeBtn.addEventListener("click", () => {
-  setTheme(document.body.classList.contains("dark") ? "light" : "dark");
-});
+      setTimeout(() => {
+        el.textContent = original;
+        el.classList.remove("copied");
+        el.style.pointerEvents = "auto";
+      }, 2000);
+    });
+  };
 
-
-/* --- ----*/
-
-function copyNameservers(el, domain, nameservers, registrar) {
-  if (!nameservers) return;
-
-  const text =
-    domain + "\n" +
-    nameservers
-      .split(",")
-      .map(ns => ns.trim())
-      .join("\n") +
-    "\nRegistrar: " + (registrar || "-");
-
-  navigator.clipboard.writeText(text).then(() => {
-    const original = el.textContent;
-    el.textContent = "Copied";
-    el.classList.add("copied");
-    el.style.pointerEvents = "none";
-
-    setTimeout(() => {
-      el.textContent = original;
-      el.classList.remove("copied");
-      el.style.pointerEvents = "auto";
-    }, 2000);
-  });
-}
-
-
-  
-/* ---------- RUN DETECTION ---------- */
-let isRunning = false;
-
-document.getElementById("run").onclick = async () => {
-  if (isRunning) return; // hard lock
-  isRunning = true;
-
+  /* ================= RUN DETECTION ================= */
   const runBtn = document.getElementById("run");
   const textarea = document.getElementById("domains");
   const tbody = document.getElementById("results");
 
-  runBtn.disabled = true;
-  runBtn.textContent = "Checking…";
-
-  const domains = [...new Set(
-    textarea.value
-      .split(/\s+/)
-      .map(d => d.trim())
-      .filter(Boolean)
-  )];
-
-  tbody.innerHTML = `
-    <tr>
-      <td colspan="6" style="opacity:.6">Checking…</td>
-    </tr>
-  `;
-
-  try {
-    const res = await fetch("/.netlify/functions/detect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ domains })
-    });
-
-    const data = await res.json();
-    tbody.innerHTML = "";
-
-    data.forEach((r, i) => {
-      const id = "trail_" + i;
-      TRAILS[id] = r.http_trail || [];
-
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${r.domain}</td>
-        <td>${r.cloudflare || "-"}</td>
-        <td>${r.http_result || "-" }
-          ${
-            r.http_trail && r.http_trail.length > 1
-              ? ` <a class="action-link"
-                   onclick="openTrail('${id}')">(view trail)</a>`
-              : ""
-          }
-        </td>
-        <td>${r.http_via || "-"}</td>
-        <td>${r.registrar || "-"}</td>
-        <td>…nameservers cell…</td>
-      `;
-      tbody.appendChild(tr);
-    });
-
-  } catch (err) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="6" style="color:#dc2626">
-          Detection failed. Please try again.
-        </td>
-      </tr>
-    `;
+  if (!runBtn || !textarea || !tbody) {
+    console.error("Required elements missing");
+    return;
   }
 
-  runBtn.disabled = false;
-  runBtn.textContent = "Run Detection";
-  isRunning = false;
-};
+  runBtn.addEventListener("click", async () => {
+    if (isRunning) return;
+    isRunning = true;
 
+    runBtn.disabled = true;
+    runBtn.textContent = "Checking…";
+
+    const domains = [...new Set(
+      textarea.value
+        .split(/\s+/)
+        .map(d => d.trim())
+        .filter(Boolean)
+    )];
+
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="opacity:.6">Checking…</td>
+      </tr>
+    `;
+
+    try {
+      const res = await fetch("/.netlify/functions/detect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domains })
+      });
+
+      const data = await res.json();
+      tbody.innerHTML = "";
+      window.TRAILS = {};
+
+      data.forEach((r, i) => {
+        const id = "trail_" + i;
+        window.TRAILS[id] = r.http_trail || [];
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${r.domain}</td>
+
+          <td>${r.cloudflare || "-"}</td>
+
+          <td>
+            ${r.http_result || "-"}
+            ${
+              r.http_trail && r.http_trail.length > 1
+                ? ` <a class="action-link"
+                     onclick="openTrail('${id}')">(view trail)</a>`
+                : ""
+            }
+          </td>
+
+          <td>${r.http_via || "-"}</td>
+
+          <td>${r.registrar || "-"}</td>
+
+          <td style="position:relative">
+            ${
+              r.nameservers && r.nameservers !== "-"
+                ? `
+                  <div style="position:absolute;top:6px;right:8px">
+                    <a class="action-link"
+                       onclick="copyNameservers(
+                         this,
+                         '${r.domain}',
+                         '${r.nameservers}',
+                         '${r.registrar || "-"}'
+                       )">
+                      Copy
+                    </a>
+                  </div>
+
+                  <div style="padding-top:16px">
+                    ${r.nameservers.split(",").map(ns => `
+                      <div class="mono">${ns.trim()}</div>
+                    `).join("")}
+                  </div>
+                `
+                : "-"
+            }
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+    } catch (err) {
+      console.error(err);
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" style="color:#dc2626">
+            Detection failed. Please try again.
+          </td>
+        </tr>
+      `;
+    }
+
+    runBtn.disabled = false;
+    runBtn.textContent = "Run Detection";
+    isRunning = false;
+  });
+});
 </script>
-
 
 </body>
 </html>
+
 
 
 
