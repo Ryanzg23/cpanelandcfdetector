@@ -186,7 +186,9 @@ tbody tr:hover {
   cursor: pointer;
   color: var(--text);
 }
-
+td {
+  vertical-align: middle;
+}
 </style>
 
 </head>
@@ -212,16 +214,16 @@ tbody tr:hover {
 
 <div class="card">
   <table>
-   <thead>
-    <tr>
-      <th>Domain</th>
-      <th>Cloudflare</th>
-      <th>Registrar</th>
-      <th>HTTP Result</th>
-      <th>301 Via</th>
-      <th>Nameservers</th>
-    </tr>
-  </thead>
+    <thead>
+      <tr>
+        <th>Domain</th>
+        <th>Cloudflare</th>
+        <th>HTTP Result</th>
+        <th>301 Via</th>
+        <th>Registrar</th>
+        <th>Nameservers</th>
+      </tr>
+    </thead>
   <tbody id="results"></tbody>
 
   </table>
@@ -264,6 +266,22 @@ function openTrail(id) {
 function closeTrail() {
   document.getElementById("trailModal").style.display = "none";
 }
+
+/* ---------- THEME TOGGLE ---------- */
+const themeBtn = document.getElementById("themeToggle");
+
+function setTheme(theme) {
+  document.body.classList.toggle("dark", theme === "dark");
+  themeBtn.textContent = theme === "dark" ? "🌞 Light" : "🌙 Dark";
+  localStorage.setItem("theme", theme);
+}
+
+// init
+setTheme(localStorage.getItem("theme") || "light");
+
+themeBtn.addEventListener("click", () => {
+  setTheme(document.body.classList.contains("dark") ? "light" : "dark");
+});
 
 /* ---------- RUN DETECTION ---------- */
 document.getElementById("run").onclick = async () => {
@@ -313,22 +331,43 @@ document.getElementById("run").onclick = async () => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${r.domain}</td>
-        <td>${r.cloudflare || "-"}</td>
-        <td>${r.registrar || "-"}</td>
+      
+        <td>
+          ${
+            r.cloudflare === "Not listed"
+              ? `<span style="opacity:.6">Not listed</span>`
+              : r.cloudflare && r.cloudflare !== "-"
+                ? `<strong style="color:#22c55e">${r.cloudflare}</strong>`
+                : `<span style="opacity:.5">-</span>`
+          }
+        </td>
+      
         <td>
           ${r.http_result || "-"}
           ${
-            hasTrail
+            r.http_trail && r.http_trail.length > 1
               ? `<button
                    style="margin-left:8px;font-size:12px"
-                   onclick="openTrail('${id}')">
+                   onclick="openTrail('trail_${i}')">
                    View trail
                  </button>`
               : ""
           }
         </td>
+      
         <td>${r.http_via || "-"}</td>
-        <td>${r.nameservers || "-"}</td>
+      
+        <td>${r.registrar || "-"}</td>
+      
+        <td>
+          ${
+            r.nameservers
+              ? r.nameservers.split(",").map(ns => `
+                  <div>${ns.trim()}</div>
+                `).join("")
+              : "-"
+          }
+        </td>
       `;
       tbody.appendChild(tr);
     });
@@ -363,6 +402,7 @@ document.getElementById("run").onclick = async () => {
 
 </body>
 </html>
+
 
 
 
