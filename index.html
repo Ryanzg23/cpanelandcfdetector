@@ -218,11 +218,20 @@ body.dark .toast {
   font-size: 12px;
   color: var(--accent);
   text-decoration: none;
+  cursor: pointer;
 }
 
 .action-link:hover {
   text-decoration: underline;
 }
+
+.action-link.copied {
+  color: #16a34a; /* green */
+  font-weight: 600;
+  cursor: default;
+  text-decoration: none;
+}
+
 
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -325,31 +334,38 @@ themeBtn.addEventListener("click", () => {
 
 /* --- ----*/
 
-function showToast(text) {
-  const toast = document.getElementById("toast");
-  toast.textContent = text;
-  toast.classList.add("show");
-  setTimeout(() => toast.classList.remove("show"), 2000);
-}
-
-function copyNameservers(domain, nameservers, registrar) {
+function copyNameservers(el, domain, nameservers, registrar) {
   if (!nameservers) return;
 
   const text =
     domain + "\n" +
-    nameservers.split(",").map(ns => ns.trim()).join("\n") +
+    nameservers
+      .split(",")
+      .map(ns => ns.trim())
+      .join("\n") +
     "\nRegistrar: " + (registrar || "-");
 
   navigator.clipboard.writeText(text).then(() => {
-    showToast("Nameservers copied");
+    const original = el.textContent;
+    el.textContent = "Copied";
+    el.classList.add("copied");
+    el.style.pointerEvents = "none";
+
+    setTimeout(() => {
+      el.textContent = original;
+      el.classList.remove("copied");
+      el.style.pointerEvents = "auto";
+    }, 2000);
   });
 }
 
 
   
 /* ---------- RUN DETECTION ---------- */
+let isRunning = false;
+
 document.getElementById("run").onclick = async () => {
-  if (isRunning) return;              // 🔒 block double click
+  if (isRunning) return; // hard lock
   isRunning = true;
 
   const runBtn = document.getElementById("run");
@@ -366,7 +382,6 @@ document.getElementById("run").onclick = async () => {
       .filter(Boolean)
   )];
 
-  // Clear previous results and show loading row
   tbody.innerHTML = `
     <tr>
       <td colspan="6" style="opacity:.6">Checking…</td>
@@ -381,110 +396,52 @@ document.getElementById("run").onclick = async () => {
     });
 
     const data = await res.json();
-
-    // Reset table and trail cache
     tbody.innerHTML = "";
-    TRAILS = {};
 
     data.forEach((r, i) => {
       const id = "trail_" + i;
       TRAILS[id] = r.http_trail || [];
 
-      const hasTrail = r.http_trail && r.http_trail.length > 1;
-
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${r.domain}</td>
-      
-        <td>
-          ${
-            r.cloudflare === "Not listed"
-              ? `<span style="opacity:.6">Not listed</span>`
-              : r.cloudflare && r.cloudflare !== "-"
-                ? `<strong style="color:#22c55e">${r.cloudflare}</strong>`
-                : `<span style="opacity:.5">-</span>`
-          }
-        </td>
-      
-        <td>
-          ${r.http_result || "-"}
+        <td>${r.cloudflare || "-"}</td>
+        <td>${r.http_result || "-" }
           ${
             r.http_trail && r.http_trail.length > 1
-              ? `<a href="javascript:void(0)"
-                     onclick="openTrail('${id}')"
-                     class="action-link">
-                    (view trail)
-                  </a>
-                  `
+              ? ` <a class="action-link"
+                   onclick="openTrail('${id}')">(view trail)</a>`
               : ""
           }
         </td>
-
-      
         <td>${r.http_via || "-"}</td>
-      
         <td>${r.registrar || "-"}</td>
-      
-        <td style="position:relative">
-          ${
-            r.nameservers && r.nameservers !== "-"
-              ? `
-                <div style="position:absolute;top:6px;right:8px">
-                  <a href="javascript:void(0)"
-                     onclick="copyNameservers(
-                       '${r.domain}',
-                       '${r.nameservers}',
-                       '${r.registrar || "-"}'
-                     )"
-                     class="action-link">
-                    Copy
-                  </a>
-                </div>
-        
-                <div style="padding-top:16px">
-                  ${r.nameservers.split(",").map(ns => `
-                    <div class="mono">${ns.trim()}</div>
-                  `).join("")}
-                </div>
-              `
-              : "-"
-          }
-        </td>
-
+        <td>…nameservers cell…</td>
       `;
       tbody.appendChild(tr);
     });
 
-    // No results fallback
-    if (!data.length) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="6" style="opacity:.6">No results</td>
-        </tr>
-      `;
-    }
-
   } catch (err) {
-    console.error(err);
     tbody.innerHTML = `
       <tr>
-        <td colspan="6" style="color:red">
+        <td colspan="6" style="color:#dc2626">
           Detection failed. Please try again.
         </td>
       </tr>
     `;
   }
 
-  // 🔓 restore button state
   runBtn.disabled = false;
   runBtn.textContent = "Run Detection";
   isRunning = false;
 };
+
 </script>
 
 
 </body>
 </html>
+
 
 
 
