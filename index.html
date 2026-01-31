@@ -158,88 +158,126 @@ tbody tr:hover {
 
 <div class="card">
   <table>
-    <thead>
-      <tr>
-        <th>Domain</th>
-        <th>Cloudflare</th>
-        <th>Registrar</th>
-        <th>HTTP Result</th>
-        <th>301 Via</th>
-        <th></th>
-        <th>Nameservers</th>
-      </tr>
-    </thead>
+   <thead>
+    <tr>
+      <th>Domain</th>
+      <th>Cloudflare</th>
+      <th>Registrar</th>
+      <th>HTTP Result</th>
+      <th>301 Via</th>
+      <th>Nameservers</th>
+    </tr>
+  </thead>
+  <tbody id="results"></tbody>
 
-    <tbody id="results"></tbody>
   </table>
 </div>
 
 </div>
 
 <script>
-/* ---------- THEME TOGGLE ---------- */
-const btn = document.getElementById("themeToggle");
+document.addEventListener("DOMContentLoaded", () => {
 
-function setTheme(t) {
-  document.body.classList.toggle("dark", t === "dark");
-  btn.textContent = t === "dark" ? "🌞 Light" : "🌙 Dark";
-  localStorage.setItem("theme", t);
-}
+  /* ---------- THEME TOGGLE ---------- */
+  const themeBtn = document.getElementById("themeToggle");
+  if (themeBtn) {
+    const setTheme = (t) => {
+      document.body.classList.toggle("dark", t === "dark");
+      themeBtn.textContent = t === "dark" ? "🌞 Light" : "🌙 Dark";
+      localStorage.setItem("theme", t);
+    };
 
-setTheme(localStorage.getItem("theme") || "light");
+    setTheme(localStorage.getItem("theme") || "light");
 
-btn.onclick = () => {
-  setTheme(document.body.classList.contains("dark") ? "light" : "dark");
-};
-
-/* ---------- DOMAIN NORMALIZER ---------- */
-function normalizeDomain(input) {
-  try {
-    if (!input.startsWith("http")) input = "http://" + input;
-    return new URL(input).hostname.replace(/^www\./, "");
-  } catch {
-    return input.split("/")[0].replace(/^www\./, "");
+    themeBtn.onclick = () => {
+      setTheme(
+        document.body.classList.contains("dark") ? "light" : "dark"
+      );
+    };
   }
-}
 
-document.getElementById("run").onclick = async () => {
-  const domains = [...new Set(
-    document.getElementById("domains").value
-      .split(/\s+/)
-      .map(normalizeDomain)
-      .filter(Boolean)
-  )];
+  /* ---------- DOMAIN NORMALIZER ---------- */
+  function normalizeDomain(input) {
+    try {
+      input = input.trim();
+      if (!input.startsWith("http")) input = "http://" + input;
+      return new URL(input).hostname.replace(/^www\./, "");
+    } catch {
+      return input.split("/")[0].replace(/^www\./, "");
+    }
+  }
 
+  /* ---------- RUN DETECTION ---------- */
+  const runBtn = document.getElementById("run");
+  const textarea = document.getElementById("domains");
   const tbody = document.getElementById("results");
-  tbody.innerHTML = "";
 
-  const res = await fetch("/.netlify/functions/detect", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ domains })
-  });
-
-  const data = await res.json();
-
-  for (const r of data) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${r.domain}</td>
-      <td>${r.cloudflare || "-"}</td>
-      <td>${r.registrar || "-"}</td>
-      <td title="Redirect detected. Full 301 trail available.">
-        ${r.http_result}
-      </td>
-      <td>${r.http_via || "-"}</td>
-      <td>${r.nameservers || "-"}</td>
-    `;
-    tbody.appendChild(tr);
+  if (!runBtn || !textarea || !tbody) {
+    console.error("Required elements missing");
+    return;
   }
-};
+
+  runBtn.onclick = async () => {
+    const domains = [...new Set(
+      textarea.value
+        .split(/\s+/)
+        .map(normalizeDomain)
+        .filter(Boolean)
+    )];
+
+    if (!domains.length) {
+      alert("Please enter at least one domain.");
+      return;
+    }
+
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="opacity:.6">Checking…</td>
+      </tr>
+    `;
+
+    try {
+      const res = await fetch("/.netlify/functions/detect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domains })
+      });
+
+      const data = await res.json();
+      tbody.innerHTML = "";
+
+      for (const r of data) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${r.domain}</td>
+          <td>${r.cloudflare || "-"}</td>
+          <td>${r.registrar || "-"}</td>
+          <td title="Redirect detected. Full 301 trail available.">
+            ${r.http_result || "-"}
+          </td>
+          <td>${r.http_via || "-"}</td>
+          <td>${r.nameservers || "-"}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+    } catch (err) {
+      console.error(err);
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" style="color:red">
+            Failed to run detection
+          </td>
+        </tr>
+      `;
+    }
+  };
+});
 </script>
+
 
 </body>
 </html>
+
 
 
 
