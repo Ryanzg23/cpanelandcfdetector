@@ -178,36 +178,41 @@ tbody tr:hover {
 </div>
 
 <script>
+/* ---------- THEME TOGGLE ---------- */
+const btn = document.getElementById("themeToggle");
+
+function setTheme(t) {
+  document.body.classList.toggle("dark", t === "dark");
+  btn.textContent = t === "dark" ? "🌞 Light" : "🌙 Dark";
+  localStorage.setItem("theme", t);
+}
+
+setTheme(localStorage.getItem("theme") || "light");
+
+btn.onclick = () => {
+  setTheme(document.body.classList.contains("dark") ? "light" : "dark");
+};
+
 /* ---------- DOMAIN NORMALIZER ---------- */
 function normalizeDomain(input) {
   try {
-    input = input.trim();
     if (!input.startsWith("http")) input = "http://" + input;
-    const url = new URL(input);
-    return url.hostname.replace(/^www\./, "");
+    return new URL(input).hostname.replace(/^www\./, "");
   } catch {
     return input.split("/")[0].replace(/^www\./, "");
   }
 }
 
-/* ---------- TOGGLE REDIRECT TRAIL ---------- */
-function toggleTrail(id) {
-  const row = document.getElementById(id);
-  if (!row) return;
-  row.style.display = row.style.display === "none" ? "table-row" : "none";
-}
-
 document.getElementById("run").onclick = async () => {
-  const rawLines = document.getElementById("domains")
-    .value.split(/\s+/)
-    .filter(Boolean);
-
   const domains = [...new Set(
-    rawLines.map(d => normalizeDomain(d)).filter(Boolean)
+    document.getElementById("domains").value
+      .split(/\s+/)
+      .map(normalizeDomain)
+      .filter(Boolean)
   )];
 
   const tbody = document.getElementById("results");
-  tbody.innerHTML = "<tr><td colspan='7'>Checking…</td></tr>";
+  tbody.innerHTML = "";
 
   const res = await fetch("/.netlify/functions/detect", {
     method: "POST",
@@ -216,66 +221,27 @@ document.getElementById("run").onclick = async () => {
   });
 
   const data = await res.json();
-  tbody.innerHTML = "";
 
   for (const r of data) {
-    const trailId = "trail-" + Math.random().toString(36).slice(2);
-
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${r.domain}</td>
-
-      <td>
-        ${
-          r.cloudflare === "Not listed"
-            ? `<span style="opacity:.6">Not listed</span>`
-            : r.cloudflare && r.cloudflare !== "-"
-              ? `<strong style="color:#22c55e">${r.cloudflare}</strong>`
-              : `<span style="opacity:.5">-</span>`
-        }
-      </td>
-
+      <td>${r.cloudflare || "-"}</td>
       <td>${r.registrar || "-"}</td>
-
-      <td>${r.http_result || "-"}</td>
-      <td>${r.http_via || "-"}</td>
-
-      <td>
-        ${
-          r.http_trail && r.http_trail.length > 1
-            ? `<button onclick="toggleTrail('${trailId}')">↗</button>`
-            : ""
-        }
+      <td title="Redirect detected. Full 301 trail available.">
+        ${r.http_result}
       </td>
-
+      <td>${r.http_via || "-"}</td>
       <td>${r.nameservers || "-"}</td>
     `;
     tbody.appendChild(tr);
-
-    if (r.http_trail && r.http_trail.length > 1) {
-      const tr2 = document.createElement("tr");
-      tr2.id = trailId;
-      tr2.style.display = "none";
-      tr2.innerHTML = `
-        <td colspan="7">
-          <div style="font-size:13px;line-height:1.6">
-            ${r.http_trail.map(t => `
-              ${t.url}
-              <span style="opacity:.6">
-                (${t.status}${t.status >= 300 && t.status < 400 ? ", via " + t.via : ""})
-              </span>
-            `).join("<br>")}
-          </div>
-        </td>
-      `;
-      tbody.appendChild(tr2);
-    }
   }
 };
 </script>
 
 </body>
 </html>
+
 
 
 
