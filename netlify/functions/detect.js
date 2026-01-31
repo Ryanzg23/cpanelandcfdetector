@@ -2,7 +2,10 @@ export async function handler(event) {
   try {
     const { domains } = JSON.parse(event.body || "{}");
     if (!Array.isArray(domains)) {
-      return { statusCode: 400, body: "Invalid input" };
+      return {
+        statusCode: 400,
+        body: "Invalid input"
+      };
     }
 
     /* ========= CSV SOURCES ========= */
@@ -18,9 +21,9 @@ export async function handler(event) {
     const results = [];
 
     for (const input of domains) {
-      const domainInput = input.trim();
-      const hostname = getHostname(domainInput);
-      const startUrl = normalizeUrl(domainInput);
+      const rawInput = input.trim();
+      const hostname = extractHostname(rawInput);
+      const startUrl = normalizeUrl(rawInput);
 
       let cloudflare = "-";
       let registrar = "-";
@@ -29,7 +32,7 @@ export async function handler(event) {
       let http_via = "-";
       let http_trail = [];
 
-      /* ========= DNS (Nameservers) ========= */
+      /* ========= NAMESERVERS ========= */
       let foundNS = [];
       try {
         const nsRes = await fetch(
@@ -39,27 +42,25 @@ export async function handler(event) {
 
         if (nsJson.Answer) {
           foundNS = nsJson.Answer.map(n =>
-            normalizeNS(n.data)
+            n.data.replace(/\.$/, "").toLowerCase()
           );
           nameservers = foundNS.join(", ");
         }
       } catch {}
 
-      /* ========= CLOUDFLARE (normal domains) ========= */
+      /* ========= CLOUDFLARE (WORKING LOGIC) ========= */
       if (foundNS.length) {
-        const foundSet = new Set(foundNS);
-
         for (const row of cfList) {
-          const normalizedRow = {};
-          for (const k in row) {
-            normalizedRow[k.trim().toLowerCase()] = row[k]?.trim();
-          }
+          const ns1 = row["Nameserver 1"]?.trim().toLowerCase();
+          const ns2 = row["Nameserver 2"]?.trim().toLowerCase();
+          const email = row["Cloudflare Email"]?.trim();
 
-          const ns1 = normalizeNS(normalizedRow.ns1 || "");
-          const ns2 = normalizeNS(normalizedRow.ns2 || "");
-          const email = normalizedRow["cloudflare email"];
-
-          if (ns1 && ns2 && foundSet.has(ns1) && foundSet.has(ns2)) {
+          if (
+            ns1 &&
+            ns2 &&
+            foundNS.includes(ns1) &&
+            foundNS.includes(ns2)
+          ) {
             cloudflare = email || "-";
             break;
           }
@@ -69,6 +70,7 @@ export async function handler(event) {
       /* ========= pages.dev ========= */
       if (hostname.endsWith(".pages.dev")) {
         const match = pagesList.find(r =>
+          r.Domain &&
           normalizeDomain(r.Domain) === normalizeDomain(hostname)
         );
         cloudflare = match ? match.Email : "Not listed";
@@ -76,40 +78,47 @@ export async function handler(event) {
 
       /* ========= REGISTRAR ========= */
       try {
-        const whoisRes = await fetch(`https://rdap.org/domain/${hostname}`);
+        const whoisRes = await fetch(
+          `https://rdap.org/domain/${hostname}`
+        );
         const whois = await whoisRes.json();
         registrar =
-          whois.registrar?.name ||
           whois.entities?.find(e => e.roles?.includes("registrar"))
-            ?.vcardArray?.[1]?.find(v => v[0] === "fn")?.[3] ||
-          "-";
+            ?.vcardArray?.[1]
+            ?.find(v => v[0] === "fn")?.[3] || "-";
       } catch {}
 
-      /* ========= HTTP REDIRECTS ========= */
+      /* ========= HTTP REDIRECTS (SIMPLE + STABLE) ========= */
       try {
-        const redirectData = await followRedirects(startUrl);
-        http_trail = redirectData.trail;
-
-        if (http_trail.length) {
-          const finalStep = http_trail.at(-1);
-          const startHost = new URL(startUrl).hostname.replace(/^www\./, "");
-          const finalHost = new URL(finalStep.url).hostname.replace(/^www\./, "");
-
-          if (startHost === finalHost) {
-            const u = new URL(finalStep.url);
-            http_result = `${u.protocol}//${u.host}${u.pathname}${u.search}`;
-          } else {
-            http_result = `301 to ${finalStep.url}`;
+        const res = await fetch(startUrl, { redirect: "manual" });
+        if (res.status >= 300 && res.status < 400) {
+          const loc = res.headers.get("location");
+          if (loc) {
+            const finalUrl = new URL(loc, startUrl).toString();
+            http_result = `301 to ${finalUrl}`;
+            http_via = res.headers.get("server")?.toLowerCase().includes("cloudflare")
+              ? "Cloudflare"
+              : "Origin";
+            http_trail = [{
+              url: startUrl,
+              status: res.status,
+              via: http_via
+            }];
           }
-
-          http_via = finalStep.via || "-";
+        } else if (res.status === 200) {
+          http_result = startUrl.startsWith("https://")
+            ? startUrl
+            : startUrl.replace(/^http:/, "https:");
+          http_via = res.headers.get("server")?.toLowerCase().includes("cloudflare")
+            ? "Cloudflare"
+            : "Origin";
         }
       } catch {
         http_result = "Domain not active";
       }
 
       results.push({
-        domain: domainInput,
+        domain: rawInput,
         cloudflare,
         registrar,
         nameservers,
@@ -124,18 +133,23 @@ export async function handler(event) {
       body: JSON.stringify(results)
     };
   } catch (err) {
-    return { statusCode: 500, body: "Server error" };
+    return {
+      statusCode: 500,
+      body: "Server error"
+    };
   }
 }
 
 /* ========= HELPERS ========= */
 
 function normalizeUrl(input) {
-  if (!/^https?:\/\//i.test(input)) return "http://" + input;
+  if (!/^https?:\/\//i.test(input)) {
+    return "http://" + input;
+  }
   return input;
 }
 
-function getHostname(input) {
+function extractHostname(input) {
   return normalizeUrl(input)
     .replace(/^https?:\/\//, "")
     .split("/")[0]
@@ -143,11 +157,9 @@ function getHostname(input) {
 }
 
 function normalizeDomain(d) {
-  return d.replace(/^https?:\/\//, "").replace(/\/$/, "").toLowerCase();
-}
-
-function normalizeNS(ns) {
-  return ns.toLowerCase().trim().replace(/\.$/, "");
+  return d.replace(/^https?:\/\//, "")
+    .replace(/\/$/, "")
+    .toLowerCase();
 }
 
 async function loadCsv(url) {
@@ -163,49 +175,4 @@ async function loadCsv(url) {
     });
     return obj;
   });
-}
-
-async function followRedirects(startUrl, maxHops = 10) {
-  let currentUrl = startUrl;
-  const trail = [];
-
-  for (let i = 0; i < maxHops; i++) {
-    const res = await fetch(currentUrl, { redirect: "manual" });
-    const server = res.headers.get("server") || "";
-    const via = server.toLowerCase().includes("cloudflare")
-      ? "Cloudflare"
-      : "Origin";
-
-    trail.push({
-      url: currentUrl,
-      status: res.status,
-      via
-    });
-
-    if (res.status >= 300 && res.status < 400) {
-      const loc = res.headers.get("location");
-      if (!loc) break;
-      currentUrl = new URL(loc, currentUrl).toString();
-      continue;
-    }
-    break;
-  }
-
-  if (currentUrl.startsWith("http://")) {
-    try {
-      const httpsUrl = currentUrl.replace(/^http:/, "https:");
-      const res = await fetch(httpsUrl, { redirect: "manual" });
-      if (res.status >= 200 && res.status < 400) {
-        trail.push({
-          url: httpsUrl,
-          status: res.status,
-          via: res.headers.get("server")?.toLowerCase().includes("cloudflare")
-            ? "Cloudflare"
-            : "Origin"
-        });
-      }
-    } catch {}
-  }
-
-  return { trail };
 }
