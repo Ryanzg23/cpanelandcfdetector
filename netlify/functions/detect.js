@@ -1,178 +1,255 @@
-export async function handler(event) {
+import dns from "dns/promises";
+
+/* ================= DOMAIN NORMALIZER ================= */
+function normalizeDomain(input) {
   try {
-    const { domains } = JSON.parse(event.body || "{}");
-    if (!Array.isArray(domains)) {
+    input = input.trim();
+    if (!input.startsWith("http")) input = "http://" + input;
+    return new URL(input).hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return input.split("/")[0].replace(/^www\./, "").toLowerCase();
+  }
+}
+
+/* ================= CSV PARSER ================= */
+function parseCSV(text) {
+  const rows = [];
+  let row = [];
+  let val = "";
+  let inQuotes = false;
+
+  for (let c of text) {
+    if (c === '"') inQuotes = !inQuotes;
+    else if (c === "," && !inQuotes) {
+      row.push(val);
+      val = "";
+    } else if ((c === "\n" || c === "\r") && !inQuotes) {
+      if (row.length || val) {
+        row.push(val);
+        rows.push(row);
+      }
+      row = [];
+      val = "";
+    } else {
+      val += c;
+    }
+  }
+
+  if (row.length || val) {
+    row.push(val);
+    rows.push(row);
+  }
+
+  const headers = rows.shift().map(h => h.trim());
+  return rows.map(r => {
+    const o = {};
+    headers.forEach((h, i) => o[h] = (r[i] || "").trim());
+    return o;
+  });
+}
+
+/* ================= REGISTRAR ================= */
+async function getRegistrar(domain) {
+  try {
+    const res = await fetch(`https://rdap.org/domain/${domain}`);
+    if (!res.ok) return "-";
+    const data = await res.json();
+    return (
+      data.entities?.find(e => e.roles?.includes("registrar"))
+        ?.vcardArray?.[1]
+        ?.find(v => v[0] === "fn")?.[3] || "-"
+    );
+  } catch {
+    return "-";
+  }
+}
+
+/* ================= HTTP / 301 DETECTION ================= */
+async function detectHttp(domain, maxHops = 6) {
+  let trail = [];
+  let currentUrl = "http://" + domain;
+
+  try {
+    for (let i = 0; i < maxHops; i++) {
+      const res = await fetch(currentUrl, { redirect: "manual" });
+      const server = res.headers.get("server") || "";
+      const via = server.toLowerCase().includes("cloudflare")
+        ? "Cloudflare"
+        : "htaccess";
+
+      trail.push({
+        url: currentUrl,
+        status: res.status,
+        via
+      });
+
+      const location = res.headers.get("location");
+      if (res.status >= 300 && res.status < 400 && location) {
+        currentUrl = new URL(location, currentUrl).toString();
+        continue;
+      }
+
+      break;
+    }
+
+    let finalUrl = currentUrl;
+
+    // ðŸ”‘ HTTPS preference check
+    if (finalUrl.startsWith("http://")) {
+      try {
+        const httpsUrl = finalUrl.replace(/^http:/, "https:");
+        const httpsRes = await fetch(httpsUrl, { redirect: "manual" });
+        if (httpsRes.status >= 200 && httpsRes.status < 400) {
+          trail.push({
+            url: httpsUrl,
+            status: httpsRes.status,
+            via: httpsRes.headers.get("server")?.toLowerCase().includes("cloudflare")
+              ? "Cloudflare"
+              : "htaccess"
+          });
+          finalUrl = httpsUrl;
+        }
+      } catch {}
+    }
+
+    const startHost = domain.replace(/^www\./, "");
+    const finalHost = new URL(finalUrl).hostname.replace(/^www\./, "");
+
+    // Same-domain â†’ show canonical protocol + host
+    if (startHost === finalHost) {
       return {
-        statusCode: 400,
-        body: "Invalid input"
+        result: `${new URL(finalUrl).protocol}//${finalHost}`,
+        via: trail[trail.length - 1]?.via || "-",
+        trail
       };
     }
 
-    /* ========= CSV SOURCES ========= */
-    const CF_CSV =
-      "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ2U3uOILXKnV9VTDJgH2LzuP9uG2SGRf_w65CSL9VXcwIyFrWNNpmycqSQwgl5SwuP6N2HQI8ibXWv/pub?output=csv&gid=281551120";
+    // Cross-domain â†’ FULL URL
+    return {
+      result: `301 to ${finalUrl}`,
+      via: trail[trail.length - 1]?.via || "-",
+      trail
+    };
 
-    const PAGES_CSV =
-      "https://docs.google.com/spreadsheets/d/1AtmjzUR_iGHCUE_tYLMAM9BP8Zx37nGiU0g632f2594/pub?output=csv&gid=1856733993";
+  } catch {
+    return {
+      result: "Domain not active",
+      via: "-",
+      trail: []
+    };
+  }
+}
 
-    const cfList = await loadCsv(CF_CSV);
-    const pagesList = await loadCsv(PAGES_CSV);
+/* ================= FALLBACK RESULT ================= */
+function inactiveResult(domain) {
+  return {
+    domain,
+    cloudflare: "-",
+    registrar: "-",
+    http_result: "Domain not active",
+    http_via: "-",
+    http_trail: [],
+    nameservers: "-"
+  };
+}
+
+/* ================= MAIN HANDLER ================= */
+export async function handler(event) {
+  try {
+    const body = JSON.parse(event.body || "{}");
+    const domains = [...new Set(
+      (body.domains || []).map(normalizeDomain).filter(Boolean)
+    )];
+
+    if (!domains.length) {
+      return {
+        statusCode: 400,
+        body: "No domains provided"
+      };
+    }
+
+    /* ===== CSV SOURCES ===== */
+    const BASE =
+      "https://docs.google.com/spreadsheets/d/1AtmjzUR_iGHCUE_tYLMAM9BP8Zx37nGiU0g632f2594/export?format=csv&gid=";
+
+    const cfCsv = parseCSV(await (await fetch(BASE + "281551120")).text());
+    const pagesCsv = parseCSV(await (await fetch(BASE + "1856733993")).text());
+
+    const pagesMap = {};
+    pagesCsv.forEach(r => {
+      const d = normalizeDomain(r.Domain);
+      if (d) pagesMap[d] = r.Cloudflare;
+    });
+
+    const cfNs = cfCsv.map(r => ({
+      email: r["Cloudflare Email"],
+      ns1: r["Nameserver 1"]?.toLowerCase(),
+      ns2: r["Nameserver 2"]?.toLowerCase()
+    }));
 
     const results = [];
 
-    for (const input of domains) {
-      const rawInput = input.trim();
-      const hostname = extractHostname(rawInput);
-      const startUrl = normalizeUrl(rawInput);
-
-      let cloudflare = "-";
-      let registrar = "-";
-      let nameservers = "-";
-      let http_result = "-";
-      let http_via = "-";
-      let http_trail = [];
-
-      /* ========= NAMESERVERS ========= */
-      let foundNS = [];
+    for (const domain of domains) {
       try {
-        const nsRes = await fetch(
-          `https://dns.google/resolve?name=${hostname}&type=NS`
-        );
-        const nsJson = await nsRes.json();
+        const http = await detectHttp(domain);
 
-        if (nsJson.Answer) {
-          foundNS = nsJson.Answer.map(n =>
-            n.data.replace(/\.$/, "").toLowerCase()
-          );
-          nameservers = foundNS.join(", ");
+        /* ===== pages.dev ===== */
+        if (domain.endsWith(".pages.dev")) {
+          results.push({
+            domain,
+            cloudflare: pagesMap[domain] || "Not listed",
+            registrar: "Cloudflare, Inc.",
+            http_result: http.result,
+            http_via: http.via,
+            http_trail: http.trail,
+            nameservers: "-"
+          });
+          continue;
         }
-      } catch {}
 
-      /* ========= CLOUDFLARE (WORKING LOGIC) ========= */
-      if (foundNS.length) {
-        for (const row of cfList) {
-          const ns1 = row["Nameserver 1"]?.trim().toLowerCase();
-          const ns2 = row["Nameserver 2"]?.trim().toLowerCase();
-          const email = row["Cloudflare Email"]?.trim();
+        /* ===== NS LOOKUP ===== */
+        let nameservers = [];
+        try {
+          nameservers = (await dns.resolveNs(domain))
+            .map(n => n.replace(/\.$/, "").toLowerCase());
+        } catch {}
 
-          if (
-            ns1 &&
-            ns2 &&
-            foundNS.includes(ns1) &&
-            foundNS.includes(ns2)
-          ) {
-            cloudflare = email || "-";
+        let cloudflare = "-";
+        for (const r of cfNs) {
+          if (nameservers.includes(r.ns1) && nameservers.includes(r.ns2)) {
+            cloudflare = r.email;
             break;
           }
         }
-      }
 
-      /* ========= pages.dev ========= */
-      if (hostname.endsWith(".pages.dev")) {
-        const match = pagesList.find(r =>
-          r.Domain &&
-          normalizeDomain(r.Domain) === normalizeDomain(hostname)
-        );
-        cloudflare = match ? match.Email : "Not listed";
-      }
+        results.push({
+          domain,
+          cloudflare,
+          registrar: await getRegistrar(domain),
+          http_result: http.result,
+          http_via: http.via,
+          http_trail: http.trail,
+          nameservers: nameservers.length
+            ? nameservers.join(", ")
+            : "-"
+        });
 
-      /* ========= REGISTRAR ========= */
-      try {
-        const whoisRes = await fetch(
-          `https://rdap.org/domain/${hostname}`
-        );
-        const whois = await whoisRes.json();
-        registrar =
-          whois.entities?.find(e => e.roles?.includes("registrar"))
-            ?.vcardArray?.[1]
-            ?.find(v => v[0] === "fn")?.[3] || "-";
-      } catch {}
-
-      /* ========= HTTP REDIRECTS (SIMPLE + STABLE) ========= */
-      try {
-        const res = await fetch(startUrl, { redirect: "manual" });
-        if (res.status >= 300 && res.status < 400) {
-          const loc = res.headers.get("location");
-          if (loc) {
-            const finalUrl = new URL(loc, startUrl).toString();
-            http_result = `301 to ${finalUrl}`;
-            http_via = res.headers.get("server")?.toLowerCase().includes("cloudflare")
-              ? "Cloudflare"
-              : "Origin";
-            http_trail = [{
-              url: startUrl,
-              status: res.status,
-              via: http_via
-            }];
-          }
-        } else if (res.status === 200) {
-          http_result = startUrl.startsWith("https://")
-            ? startUrl
-            : startUrl.replace(/^http:/, "https:");
-          http_via = res.headers.get("server")?.toLowerCase().includes("cloudflare")
-            ? "Cloudflare"
-            : "Origin";
-        }
       } catch {
-        http_result = "Domain not active";
+        results.push(inactiveResult(domain));
       }
-
-      results.push({
-        domain: rawInput,
-        cloudflare,
-        registrar,
-        nameservers,
-        http_result,
-        http_via,
-        http_trail
-      });
     }
 
     return {
       statusCode: 200,
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(results)
     };
+
   } catch (err) {
     return {
       statusCode: 500,
-      body: "Server error"
+      body: JSON.stringify({ error: err.message })
     };
   }
 }
 
-/* ========= HELPERS ========= */
-
-function normalizeUrl(input) {
-  if (!/^https?:\/\//i.test(input)) {
-    return "http://" + input;
-  }
-  return input;
-}
-
-function extractHostname(input) {
-  return normalizeUrl(input)
-    .replace(/^https?:\/\//, "")
-    .split("/")[0]
-    .toLowerCase();
-}
-
-function normalizeDomain(d) {
-  return d.replace(/^https?:\/\//, "")
-    .replace(/\/$/, "")
-    .toLowerCase();
-}
-
-async function loadCsv(url) {
-  const res = await fetch(url);
-  const text = await res.text();
-  const [header, ...rows] = text.split(/\r?\n/);
-  const keys = header.split(",").map(h => h.trim());
-
-  return rows.map(r => {
-    const obj = {};
-    r.split(",").forEach((v, i) => {
-      obj[keys[i]] = v?.replace(/^"|"$/g, "").trim();
-    });
-    return obj;
-  });
-}
