@@ -1,6 +1,6 @@
 import dns from "dns/promises";
 
-/* ---------- CSV PARSER (ROBUST) ---------- */
+/* ---------- CSV PARSER ---------- */
 function parseCSV(text) {
   const rows = [];
   let row = [];
@@ -55,21 +55,18 @@ function ipToInt(ip) {
 function ipInRange(ip, cidr) {
   if (!cidr) return false;
   if (!cidr.includes("/")) return ip === cidr;
+
   const [range, bits] = cidr.split("/");
   const mask = bits == 0 ? 0 : (~0 << (32 - bits)) >>> 0;
   return (ipToInt(ip) & mask) === (ipToInt(range) & mask);
 }
 
-/* ---------- MAIN FUNCTION ---------- */
+/* ---------- MAIN ---------- */
 export async function handler(event) {
   try {
     const { domains } = JSON.parse(event.body || "{}");
-
     if (!domains || !domains.length) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "No domains provided" })
-      };
+      return { statusCode: 400, body: "No domains provided" };
     }
 
     /* CSV SOURCES */
@@ -79,7 +76,6 @@ export async function handler(event) {
     const CLOUDFLARE_CSV =
       "https://docs.google.com/spreadsheets/d/1AtmjzUR_iGHCUE_tYLMAM9BP8Zx37nGiU0g632f2594/export?format=csv&gid=281551120";
 
-    /* FETCH CSVs */
     const [cpRes, cfRes] = await Promise.all([
       fetch(CPANEL_CSV),
       fetch(CLOUDFLARE_CSV)
@@ -88,41 +84,53 @@ export async function handler(event) {
     const cpanelList = parseCSV(await cpRes.text());
     const cfList = parseCSV(await cfRes.text());
 
-    /* Normalize Cloudflare CSV entries (NEW FORMAT) */
+    /* Normalize cPanel IP list */
+    const cpanelIPs = cpanelList.map(r => ({
+      name: r["Cpanel Name"],
+      ip: r.IP
+    }));
+
+    /* Normalize Cloudflare NS */
     const cfEntries = cfList.map(r => ({
       email: r["Cloudflare Email"],
-      ns1: (r["Nameserver 1"] || "").toLowerCase().replace(/\.$/, "").trim(),
-      ns2: (r["Nameserver 2"] || "").toLowerCase().replace(/\.$/, "").trim()
-    })).filter(r => r.ns1 && r.ns2);
+      ns1: r["Nameserver 1"].toLowerCase().replace(/\.$/, "").trim(),
+      ns2: r["Nameserver 2"].toLowerCase().replace(/\.$/, "").trim()
+    }));
 
     const results = [];
 
     for (const domain of domains) {
       let ip = "-";
       let cpanel = "Unknown";
-      let cloudflare = "No";
       let cfEmail = "-";
       let nameservers = [];
 
       /* ---------- A RECORD ---------- */
       try {
         const a = await dns.resolve4(domain);
-        ip = a.find(i => i.includes(".")) || a[0];
+        ip = a[0];
 
         const isCloudflareIP =
           ip.startsWith("104.") ||
           ip.startsWith("172.6") ||
           ip.startsWith("188.114.");
 
-        if (!isCloudflareIP) {
-          for (const row of cpanelList) {
-            if (ipInRange(ip, row.IP)) {
-              cpanel = row["Cpanel Name"];
-              break;
+        if (isCloudflareIP) {
+          cpanel = "Behind Cloudflare";
+        } else {
+          /* 1) Exact IP match */
+          const exact = cpanelIPs.find(r => r.ip === ip);
+          if (exact) {
+            cpanel = exact.name;
+          } else {
+            /* 2) CIDR / shared IP match */
+            for (const row of cpanelIPs) {
+              if (ipInRange(ip, row.ip)) {
+                cpanel = row.name;
+                break;
+              }
             }
           }
-        } else {
-          cpanel = "Behind Cloudflare";
         }
       } catch {}
 
@@ -133,12 +141,6 @@ export async function handler(event) {
           .map(n => n.toLowerCase().replace(/\.$/, "").trim())
           .sort();
 
-        /* Generic Cloudflare detection */
-        if (nameservers.every(n => n.endsWith(".ns.cloudflare.com"))) {
-          cloudflare = "Yes";
-        }
-
-        /* Exact CSV match → email */
         for (const row of cfEntries) {
           if (
             nameservers.includes(row.ns1) &&
@@ -154,7 +156,6 @@ export async function handler(event) {
         domain,
         ip,
         cpanel,
-        cloudflare,
         cloudflare_email: cfEmail,
         nameservers: nameservers.join(", ")
       });
@@ -166,9 +167,6 @@ export async function handler(event) {
       body: JSON.stringify(results)
     };
   } catch (err) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: err.message })
-    };
+    return { statusCode: 500, body: err.toString() };
   }
 }
