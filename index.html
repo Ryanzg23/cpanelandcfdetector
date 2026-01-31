@@ -86,6 +86,21 @@ button {
   border-radius: 6px;
   cursor: pointer;
 }
+button#run {
+  transition: background-color .2s, transform .1s, box-shadow .2s;
+}
+
+button#run:hover {
+  background-color: #1d4ed8; /* slightly darker accent */
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+  transform: translateY(-1px);
+}
+
+button#run:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.2);
+}
+
 
 table {
   width: 100%;
@@ -252,8 +267,27 @@ document.addEventListener("DOMContentLoaded", () => {
           <td>${r.domain}</td>
           <td>${r.cloudflare || "-"}</td>
           <td>${r.registrar || "-"}</td>
-          <td title="Redirect detected. Full 301 trail available.">
-            ${r.http_result || "-"}
+          <td>
+            ${
+              r.http_result && r.http_result !== "-"
+                ? (() => {
+                    const is301 = r.http_result.startsWith("301 to ");
+                    const url = is301
+                      ? r.http_result.replace("301 to ", "").trim()
+                      : r.http_result;
+          
+                    return `
+                      <a href="${url}"
+                         target="_blank"
+                         rel="noopener noreferrer"
+                         title="Click to view final URL. Full 301 trail available."
+                         style="color:var(--accent);text-decoration:underline">
+                        ${r.http_result}
+                      </a>
+                    `;
+                  })()
+                : "-"
+            }
           </td>
           <td>${r.http_via || "-"}</td>
           <td>${r.nameservers || "-"}</td>
@@ -277,6 +311,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 </body>
 </html>
+
 
 
 
