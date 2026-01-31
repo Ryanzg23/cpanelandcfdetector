@@ -12,6 +12,7 @@
   --text: #111827;
   --border: #e5e7eb;
   --accent: #2563eb;
+  --hover: rgba(37,99,235,.06);
 }
 
 body.dark {
@@ -20,11 +21,12 @@ body.dark {
   --text: #e5e7eb;
   --border: #1e293b;
   --accent: #60a5fa;
+  --hover: rgba(96,165,250,.12);
 }
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   background: var(--bg);
   color: var(--text);
 }
@@ -56,13 +58,13 @@ button {
   cursor: pointer;
 }
 
+button:hover:not(:disabled) {
+  filter: brightness(.95);
+}
+
 button:disabled {
   opacity: .6;
   cursor: not-allowed;
-}
-
-button:hover:not(:disabled) {
-  filter: brightness(.95);
 }
 
 .card {
@@ -108,6 +110,11 @@ tbody tr:nth-child(even) {
 }
 body.dark tbody tr:nth-child(even) {
   background: rgba(255,255,255,.04);
+}
+
+/* ✅ Hover highlight restored */
+tbody tr:hover {
+  background: var(--hover);
 }
 
 .action-link {
@@ -176,6 +183,7 @@ body.dark tbody tr:nth-child(even) {
 
 <div class="card">
   <button id="run">Run Detection</button>
+  <span id="progress" style="margin-left:12px;opacity:.7"></span>
 </div>
 
 <div class="card">
@@ -213,7 +221,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let isRunning = false;
   window.TRAILS = {};
 
-  /* Theme toggle */
+  /* Theme toggle (button, not checkbox) */
   const themeBtn = document.getElementById("themeToggle");
   function setTheme(t) {
     document.body.classList.toggle("dark", t === "dark");
@@ -221,12 +229,11 @@ document.addEventListener("DOMContentLoaded", () => {
     localStorage.setItem("theme", t);
   }
   setTheme(localStorage.getItem("theme") || "light");
-  themeBtn.onclick = () => {
+  themeBtn.onclick = () =>
     setTheme(document.body.classList.contains("dark") ? "light" : "dark");
-  };
 
   /* Modal */
-  window.openTrail = function(id) {
+  window.openTrail = id => {
     const trail = window.TRAILS[id];
     if (!trail) return;
     document.getElementById("trailBody").innerHTML =
@@ -238,15 +245,14 @@ document.addEventListener("DOMContentLoaded", () => {
       ).join("<br>");
     document.getElementById("trailModal").style.display = "block";
   };
-
-  window.closeTrail = function() {
+  window.closeTrail = () =>
     document.getElementById("trailModal").style.display = "none";
-  };
 
-  /* Run detection */
+  /* Run detection with progress */
   const runBtn = document.getElementById("run");
   const textarea = document.getElementById("domains");
   const tbody = document.getElementById("results");
+  const progress = document.getElementById("progress");
 
   runBtn.onclick = async () => {
     if (isRunning) return;
@@ -254,15 +260,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     runBtn.disabled = true;
     runBtn.textContent = "Checking…";
+    progress.textContent = "";
 
     const domains = [...new Set(
       textarea.value.split(/\s+/).map(d => d.trim()).filter(Boolean)
     )];
 
     tbody.innerHTML = `
-      <tr>
-        <td colspan="6" style="opacity:.6">Checking…</td>
-      </tr>
+      <tr><td colspan="6" style="opacity:.6">Checking…</td></tr>
     `;
 
     try {
@@ -277,6 +282,8 @@ document.addEventListener("DOMContentLoaded", () => {
       window.TRAILS = {};
 
       data.forEach((r, i) => {
+        progress.textContent = `Checking ${i + 1} / ${data.length}`;
+
         const id = "trail_" + i;
         window.TRAILS[id] = r.http_trail || [];
 
@@ -305,13 +312,13 @@ document.addEventListener("DOMContentLoaded", () => {
         tbody.appendChild(tr);
       });
 
+      progress.textContent = `Done (${data.length})`;
+
     } catch {
       tbody.innerHTML = `
-        <tr>
-          <td colspan="6" style="color:#dc2626">
-            Detection failed. Please try again.
-          </td>
-        </tr>
+        <tr><td colspan="6" style="color:#dc2626">
+          Detection failed. Please try again.
+        </td></tr>
       `;
     }
 
