@@ -3,13 +3,12 @@ import dns from "dns/promises";
 /* ================= DOMAIN NORMALIZER ================= */
 function normalizeDomain(input) {
   try {
-    if (!input.startsWith("http")) {
-      input = "http://" + input;
-    }
+    input = input.trim();
+    if (!input.startsWith("http")) input = "http://" + input;
     const url = new URL(input);
-    return url.hostname.replace(/^www\./, "");
+    return url.hostname.replace(/^www\./, "").toLowerCase();
   } catch {
-    return input.split("/")[0].replace(/^www\./, "");
+    return input.split("/")[0].replace(/^www\./, "").toLowerCase();
   }
 }
 
@@ -60,61 +59,61 @@ function parseCSV(text) {
   });
 }
 
-/* ================= REGISTRAR (RDAP) ================= */
+/* ================= REGISTRAR ================= */
 async function getRegistrar(domain) {
   try {
     const res = await fetch(`https://rdap.org/domain/${domain}`);
     if (!res.ok) return "-";
 
     const data = await res.json();
-    const registrar =
+    return (
       data.entities?.find(e => e.roles?.includes("registrar"))
         ?.vcardArray?.[1]
-        ?.find(v => v[0] === "fn")?.[3];
-
-    return registrar || "-";
+        ?.find(v => v[0] === "fn")?.[3] || "-"
+    );
   } catch {
     return "-";
   }
 }
 
-/* ================= MAIN FUNCTION ================= */
+/* ================= MAIN ================= */
 export async function handler(event) {
   try {
     const body = JSON.parse(event.body || "{}");
     const rawDomains = Array.isArray(body.domains) ? body.domains : [];
 
-    const domains = [...new Set(
-      rawDomains.map(d => normalizeDomain(d)).filter(Boolean)
-    )];
+    const domains = [...new Set(rawDomains.map(normalizeDomain).filter(Boolean))];
 
     if (!domains.length) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "No domains provided" })
-      };
+      return { statusCode: 400, body: "No domains provided" };
     }
 
     /* ===== CSV SOURCES ===== */
-    const CPANEL_CSV =
-      "https://docs.google.com/spreadsheets/d/1AtmjzUR_iGHCUE_tYLMAM9BP8Zx37nGiU0g632f2594/export?format=csv&gid=0";
+    const BASE =
+      "https://docs.google.com/spreadsheets/d/1AtmjzUR_iGHCUE_tYLMAM9BP8Zx37nGiU0g632f2594/export?format=csv&gid=";
 
-    const CLOUDFLARE_CSV =
-      "https://docs.google.com/spreadsheets/d/1AtmjzUR_iGHCUE_tYLMAM9BP8Zx37nGiU0g632f2594/export?format=csv&gid=281551120";
+    const CPANEL_CSV = BASE + "0";
+    const CLOUDFLARE_CSV = BASE + "281551120";
+    const PAGESDEV_CSV = BASE + "1856733993";
 
-    const [cpRes, cfRes] = await Promise.all([
+    const [cpRes, cfRes, pgRes] = await Promise.all([
       fetch(CPANEL_CSV),
-      fetch(CLOUDFLARE_CSV)
+      fetch(CLOUDFLARE_CSV),
+      fetch(PAGESDEV_CSV)
     ]);
 
     const cpanelList = parseCSV(await cpRes.text());
     const cfList = parseCSV(await cfRes.text());
+    const pagesList = parseCSV(await pgRes.text());
 
-    const cpanelIPs = cpanelList.map(r => ({
-      name: r["Cpanel Name"],
-      ip: r.IP
-    }));
+    /* ===== pages.dev MAP (AUTHORITATIVE) ===== */
+    const pagesMap = {};
+    for (const row of pagesList) {
+      const d = normalizeDomain(row.Domain);
+      if (d) pagesMap[d] = row.Cloudflare;
+    }
 
+    /* ===== Cloudflare NS MAP ===== */
     const cfEntries = cfList.map(r => ({
       email: r["Cloudflare Email"],
       ns1: r["Nameserver 1"]?.toLowerCase().replace(/\.$/, "").trim(),
@@ -125,14 +124,35 @@ export async function handler(event) {
 
     for (const domain of domains) {
       let ips = [];
-      let cpanel = "Unknown";
-      let cfEmail = "-";
-      let registrar = "-";
       let nameservers = [];
+      let registrar = "-";
+      let cfEmail = "-";
+      let cfType = "-";
+      let cpanel = "Unknown";
 
-      /* ===== A RECORDS ===== */
+      /* ===== pages.dev OVERRIDE ===== */
+      if (domain.endsWith(".pages.dev") && pagesMap[domain]) {
+        cfEmail = pagesMap[domain];
+        cfType = "Cloudflare Pages";
+        registrar = "Cloudflare, Inc.";
+
+        results.push({
+          domain,
+          ip: "-",
+          registrar,
+          cloudflare_email: cfEmail,
+          cf_proxy: "Pages",
+          cpanel: "N/A (Pages)",
+          nameservers: "-"
+        });
+        continue;
+      }
+
+      /* ===== DNS LOOKUPS ===== */
+      try { ips = await dns.resolve4(domain); } catch {}
       try {
-        ips = await dns.resolve4(domain);
+        nameservers = (await dns.resolveNs(domain))
+          .map(n => n.toLowerCase().replace(/\.$/, "").trim());
       } catch {}
 
       const isCloudflareIP = ips.some(ip =>
@@ -141,25 +161,10 @@ export async function handler(event) {
         ip.startsWith("188.114.")
       );
 
-      const cfProxyStatus = isCloudflareIP ? "Proxied" : "DNS-only";
+      cfType = isCloudflareIP ? "Cloudflare (Custom Domain)" : "-";
+      cpanel = isCloudflareIP ? "Behind Cloudflare" : "Unknown";
 
-      if (!isCloudflareIP) {
-        for (const row of cpanelIPs) {
-          if (ips.includes(row.ip)) {
-            cpanel = row.name;
-            break;
-          }
-        }
-      } else {
-        cpanel = "Behind Cloudflare";
-      }
-
-      /* ===== NS RECORDS ===== */
-      try {
-        nameservers = (await dns.resolveNs(domain))
-          .map(n => n.toLowerCase().replace(/\.$/, "").trim());
-      } catch {}
-
+      /* ===== Cloudflare EMAIL via NS ===== */
       for (const row of cfEntries) {
         if (
           nameservers.includes(row.ns1) &&
@@ -170,7 +175,6 @@ export async function handler(event) {
         }
       }
 
-      /* ===== REGISTRAR ===== */
       registrar = await getRegistrar(domain);
 
       results.push({
@@ -178,7 +182,7 @@ export async function handler(event) {
         ip: ips.join(", "),
         registrar,
         cloudflare_email: cfEmail,
-        cf_proxy: cfProxyStatus,
+        cf_proxy: isCloudflareIP ? "Proxied" : "DNS-only",
         cpanel,
         nameservers: nameservers.join(", ")
       });
