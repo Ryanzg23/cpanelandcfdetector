@@ -1,19 +1,5 @@
 import dns from "dns/promises";
 
-
-function inactiveResult(domain) {
-  return {
-    domain,
-    cloudflare: "-",
-    registrar: "-",
-    http_result: "Domain not active",
-    http_via: "-",
-    http_trail: [],
-    nameservers: "-"
-  };
-}
-
-
 /* ================= DOMAIN NORMALIZER ================= */
 function normalizeDomain(input) {
   try {
@@ -35,14 +21,18 @@ function parseCSV(text) {
   for (let c of text) {
     if (c === '"') inQuotes = !inQuotes;
     else if (c === "," && !inQuotes) {
-      row.push(val); val = "";
+      row.push(val);
+      val = "";
     } else if ((c === "\n" || c === "\r") && !inQuotes) {
       if (row.length || val) {
         row.push(val);
         rows.push(row);
       }
-      row = []; val = "";
-    } else val += c;
+      row = [];
+      val = "";
+    } else {
+      val += c;
+    }
   }
 
   if (row.length || val) {
@@ -74,137 +64,171 @@ async function getRegistrar(domain) {
   }
 }
 
-/* ================= HTTP REDIRECT + TRAIL ================= */
+/* ================= HTTP / 301 DETECTION ================= */
 async function detectHttp(domain, maxHops = 6) {
   let currentUrl = "http://" + domain;
   let trail = [];
 
-  for (let i = 0; i < maxHops; i++) {
-    const res = await fetch(currentUrl, { redirect: "manual" });
-    const server = res.headers.get("server") || "";
-    const via = server.toLowerCase().includes("cloudflare")
-      ? "Cloudflare"
-      : "htaccess";
+  try {
+    for (let i = 0; i < maxHops; i++) {
+      const res = await fetch(currentUrl, { redirect: "manual" });
+      const server = res.headers.get("server") || "";
+      const via = server.toLowerCase().includes("cloudflare")
+        ? "Cloudflare"
+        : "htaccess";
 
-    trail.push({
-      url: currentUrl,
-      status: res.status,
-      via
-    });
+      trail.push({
+        url: currentUrl,
+        status: res.status,
+        via
+      });
 
-    const location = res.headers.get("location");
-    if (res.status >= 300 && res.status < 400 && location) {
-      currentUrl = new URL(location, currentUrl).toString();
-      continue;
+      const location = res.headers.get("location");
+      if (res.status >= 300 && res.status < 400 && location) {
+        currentUrl = new URL(location, currentUrl).toString();
+        continue;
+      }
+      break;
     }
-    break;
-  }
 
-  const firstHost = domain.replace(/^www\./, "");
-  const last = trail[trail.length - 1];
-  const finalUrl = last.url;
-  const finalHost = new URL(finalUrl).hostname.replace(/^www\./, "");
+    const firstHost = domain.replace(/^www\./, "");
+    const last = trail[trail.length - 1];
+    const finalUrl = last.url;
+    const finalHost = new URL(finalUrl).hostname.replace(/^www\./, "");
 
-  if (firstHost === finalHost) {
+    // Same domain (http → https, www cleanup)
+    if (firstHost === finalHost) {
+      return {
+        result: `${new URL(finalUrl).protocol}//${finalHost}`,
+        via: last.via,
+        trail
+      };
+    }
+
+    // Cross-domain redirect → keep FULL path
     return {
-      result: `${new URL(finalUrl).protocol}//${finalHost}`,
+      result: `301 to ${finalUrl}`,
       via: last.via,
       trail
     };
+  } catch {
+    return {
+      result: "Domain not active",
+      via: "-",
+      trail: []
+    };
   }
+}
 
+/* ================= FALLBACK RESULT ================= */
+function inactiveResult(domain) {
   return {
-    result: `301 to ${finalUrl}`,
-    via: last.via,
-    trail
+    domain,
+    cloudflare: "-",
+    registrar: "-",
+    http_result: "Domain not active",
+    http_via: "-",
+    http_trail: [],
+    nameservers: "-"
   };
 }
 
-/* ================= MAIN ================= */
+/* ================= MAIN HANDLER ================= */
 export async function handler(event) {
-  const body = JSON.parse(event.body || "{}");
-  const domains = [...new Set(
-    (body.domains || []).map(normalizeDomain).filter(Boolean)
-  )];
-
-  const BASE =
-    "https://docs.google.com/spreadsheets/d/1AtmjzUR_iGHCUE_tYLMAM9BP8Zx37nGiU0g632f2594/export?format=csv&gid=";
-
-  const cfCsv = parseCSV(await (await fetch(BASE + "281551120")).text());
-  const pagesCsv = parseCSV(await (await fetch(BASE + "1856733993")).text());
-
-  const pagesMap = {};
-  pagesCsv.forEach(r => {
-    const d = normalizeDomain(r.Domain);
-    if (d) pagesMap[d] = r.Cloudflare;
-  });
-
-  const cfNs = cfCsv.map(r => ({
-    email: r["Cloudflare Email"],
-    ns1: r["Nameserver 1"]?.toLowerCase(),
-    ns2: r["Nameserver 2"]?.toLowerCase()
-  }));
-
-  const results = [];
-
-for (const domain of domains) {
   try {
-    const http = await detectHttp(domain);
+    const body = JSON.parse(event.body || "{}");
+    const domains = [...new Set(
+      (body.domains || []).map(normalizeDomain).filter(Boolean)
+    )];
 
-    /* ===== pages.dev OVERRIDE ===== */
-    if (domain.endsWith(".pages.dev")) {
-      results.push({
-        domain,
-        cloudflare: pagesMap[domain] || "Not listed",
-        registrar: "Cloudflare, Inc.",
-        http_result: http.result,
-        http_via: http.via,
-        http_trail: http.trail,
-        nameservers: "-"
-      });
-      continue;
+    if (!domains.length) {
+      return {
+        statusCode: 400,
+        body: "No domains provided"
+      };
     }
 
-    /* ===== NS LOOKUP ===== */
-    let nameservers = [];
-    try {
-      nameservers = (await dns.resolveNs(domain))
-        .map(n => n.replace(/\.$/, "").toLowerCase());
-    } catch {
-      // no NS = possibly inactive, but not fatal
-    }
+    /* ===== CSV SOURCES ===== */
+    const BASE =
+      "https://docs.google.com/spreadsheets/d/1AtmjzUR_iGHCUE_tYLMAM9BP8Zx37nGiU0g632f2594/export?format=csv&gid=";
 
-    let cloudflare = "-";
-    for (const r of cfNs) {
-      if (nameservers.includes(r.ns1) && nameservers.includes(r.ns2)) {
-        cloudflare = r.email;
-        break;
+    const cfCsv = parseCSV(await (await fetch(BASE + "281551120")).text());
+    const pagesCsv = parseCSV(await (await fetch(BASE + "1856733993")).text());
+
+    const pagesMap = {};
+    pagesCsv.forEach(r => {
+      const d = normalizeDomain(r.Domain);
+      if (d) pagesMap[d] = r.Cloudflare;
+    });
+
+    const cfNs = cfCsv.map(r => ({
+      email: r["Cloudflare Email"],
+      ns1: r["Nameserver 1"]?.toLowerCase(),
+      ns2: r["Nameserver 2"]?.toLowerCase()
+    }));
+
+    const results = [];
+
+    for (const domain of domains) {
+      try {
+        const http = await detectHttp(domain);
+
+        /* ===== pages.dev ===== */
+        if (domain.endsWith(".pages.dev")) {
+          results.push({
+            domain,
+            cloudflare: pagesMap[domain] || "Not listed",
+            registrar: "Cloudflare, Inc.",
+            http_result: http.result,
+            http_via: http.via,
+            http_trail: http.trail,
+            nameservers: "-"
+          });
+          continue;
+        }
+
+        /* ===== NS LOOKUP ===== */
+        let nameservers = [];
+        try {
+          nameservers = (await dns.resolveNs(domain))
+            .map(n => n.replace(/\.$/, "").toLowerCase());
+        } catch {}
+
+        let cloudflare = "-";
+        for (const r of cfNs) {
+          if (nameservers.includes(r.ns1) && nameservers.includes(r.ns2)) {
+            cloudflare = r.email;
+            break;
+          }
+        }
+
+        results.push({
+          domain,
+          cloudflare,
+          registrar: await getRegistrar(domain),
+          http_result: http.result,
+          http_via: http.via,
+          http_trail: http.trail,
+          nameservers: nameservers.length
+            ? nameservers.join(", ")
+            : "-"
+        });
+
+      } catch {
+        results.push(inactiveResult(domain));
       }
     }
 
-    results.push({
-      domain,
-      cloudflare,
-      registrar: await getRegistrar(domain),
-      http_result: http.result,
-      http_via: http.via,
-      http_trail: http.trail,
-      nameservers: nameservers.length
-        ? nameservers.join(", ")
-        : "-"
-    });
+    return {
+      statusCode: 200,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(results)
+    };
 
   } catch (err) {
-    // 🔥 THIS IS THE KEY FIX
-    results.push(inactiveResult(domain));
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: err.message })
+    };
   }
 }
-
-
-  return {
-    statusCode: 200,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(results)
-  };
-}
-
