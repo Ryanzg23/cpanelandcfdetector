@@ -47,18 +47,24 @@ function parseCSV(text) {
   });
 }
 
-/* ---------- IP / CIDR ---------- */
-function ipToInt(ip) {
-  return ip.split(".").reduce((a, o) => (a << 8) + +o, 0) >>> 0;
-}
+/* ---------- RDAP REGISTRAR ---------- */
+async function getRegistrar(domain) {
+  try {
+    const res = await fetch(`https://rdap.org/domain/${domain}`);
+    if (!res.ok) return "-";
 
-function ipInRange(ip, cidr) {
-  if (!cidr || !ip) return false;
-  if (!cidr.includes("/")) return ip === cidr;
+    const data = await res.json();
 
-  const [range, bits] = cidr.split("/");
-  const mask = bits == 0 ? 0 : (~0 << (32 - bits)) >>> 0;
-  return (ipToInt(ip) & mask) === (ipToInt(range) & mask);
+    const registrar =
+      data.entities?.find(e =>
+        e.roles?.includes("registrar")
+      )?.vcardArray?.[1]
+        ?.find(v => v[0] === "fn")?.[3];
+
+    return registrar || "-";
+  } catch {
+    return "-";
+  }
 }
 
 /* ---------- MAIN ---------- */
@@ -74,85 +80,39 @@ export async function handler(event) {
       };
     }
 
-    const CPANEL_CSV =
-      "https://docs.google.com/spreadsheets/d/1AtmjzUR_iGHCUE_tYLMAM9BP8Zx37nGiU0g632f2594/export?format=csv&gid=0";
-
+    /* CLOUDFLARE CSV */
     const CLOUDFLARE_CSV =
       "https://docs.google.com/spreadsheets/d/1AtmjzUR_iGHCUE_tYLMAM9BP8Zx37nGiU0g632f2594/export?format=csv&gid=281551120";
 
-    const [cpRes, cfRes] = await Promise.all([
-      fetch(CPANEL_CSV),
-      fetch(CLOUDFLARE_CSV)
-    ]);
-
-    const cpanelList = parseCSV(await cpRes.text());
+    const cfRes = await fetch(CLOUDFLARE_CSV);
     const cfList = parseCSV(await cfRes.text());
-
-    const cpanelIPs = cpanelList.map(r => ({
-      name: r["Cpanel Name"],
-      ip: r.IP
-    }));
 
     const cfEntries = cfList.map(r => ({
       email: r["Cloudflare Email"],
-      ns1: r["Nameserver 1"]?.toLowerCase().replace(/\.$/, "").trim(),
-      ns2: r["Nameserver 2"]?.toLowerCase().replace(/\.$/, "").trim()
-    })).filter(r => r.ns1 && r.ns2);
+      ns1: r["Nameserver 1"].toLowerCase().replace(/\.$/, "").trim(),
+      ns2: r["Nameserver 2"].toLowerCase().replace(/\.$/, "").trim()
+    }));
 
     const results = [];
 
     for (const domain of domains) {
       let ips = [];
-      let cpanel = "Unknown";
+      let registrar = "-";
       let cfEmail = "-";
       let nameservers = [];
 
-      /* ---------- A RECORDS ---------- */
+      /* A RECORD */
       try {
         ips = await dns.resolve4(domain);
-      } catch {
-        ips = [];
-      }
+      } catch {}
 
-      const isCloudflareIP = ips.some(ip =>
-        ip.startsWith("104.") ||
-        ip.startsWith("172.6") ||
-        ip.startsWith("188.114.")
-      );
-
-      if (isCloudflareIP) {
-        cpanel = "Behind Cloudflare";
-      } else {
-        // Exact IP match (any A record)
-        for (const row of cpanelIPs) {
-          if (ips.includes(row.ip)) {
-            cpanel = row.name;
-            break;
-          }
-        }
-
-        // CIDR fallback
-        if (cpanel === "Unknown") {
-          for (const row of cpanelIPs) {
-            for (const ip of ips) {
-              if (ipInRange(ip, row.ip)) {
-                cpanel = row.name;
-                break;
-              }
-            }
-            if (cpanel !== "Unknown") break;
-          }
-        }
-      }
-
-      /* ---------- NS RECORDS ---------- */
+      /* NS RECORD */
       try {
         nameservers = (await dns.resolveNs(domain))
           .map(n => n.toLowerCase().replace(/\.$/, "").trim());
-      } catch {
-        nameservers = [];
-      }
+      } catch {}
 
+      /* Cloudflare Email Match */
       for (const row of cfEntries) {
         if (
           nameservers.includes(row.ns1) &&
@@ -163,10 +123,13 @@ export async function handler(event) {
         }
       }
 
+      /* Registrar (RDAP) */
+      registrar = await getRegistrar(domain);
+
       results.push({
         domain,
         ip: ips.join(", "),
-        cpanel,
+        registrar,
         cloudflare_email: cfEmail,
         nameservers: nameservers.join(", ")
       });
@@ -178,7 +141,6 @@ export async function handler(event) {
       body: JSON.stringify(results)
     };
   } catch (err) {
-    console.error("Function crash:", err);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: err.message })
