@@ -5,8 +5,7 @@ function normalizeDomain(input) {
   try {
     input = input.trim();
     if (!input.startsWith("http")) input = "http://" + input;
-    const url = new URL(input);
-    return url.hostname.replace(/^www\./, "").toLowerCase();
+    return new URL(input).hostname.replace(/^www\./, "").toLowerCase();
   } catch {
     return input.split("/")[0].replace(/^www\./, "").toLowerCase();
   }
@@ -19,24 +18,17 @@ function parseCSV(text) {
   let val = "";
   let inQuotes = false;
 
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-
-    if (c === '"') {
-      inQuotes = !inQuotes;
-    } else if (c === "," && !inQuotes) {
-      row.push(val);
-      val = "";
+  for (let c of text) {
+    if (c === '"') inQuotes = !inQuotes;
+    else if (c === "," && !inQuotes) {
+      row.push(val); val = "";
     } else if ((c === "\n" || c === "\r") && !inQuotes) {
       if (row.length || val) {
         row.push(val);
         rows.push(row);
       }
-      row = [];
-      val = "";
-    } else {
-      val += c;
-    }
+      row = []; val = "";
+    } else val += c;
   }
 
   if (row.length || val) {
@@ -45,13 +37,10 @@ function parseCSV(text) {
   }
 
   const headers = rows.shift().map(h => h.trim());
-
   return rows.map(r => {
-    const obj = {};
-    headers.forEach((h, i) => {
-      obj[h] = (r[i] || "").trim();
-    });
-    return obj;
+    const o = {};
+    headers.forEach((h, i) => o[h] = (r[i] || "").trim());
+    return o;
   });
 }
 
@@ -71,52 +60,50 @@ async function getRegistrar(domain) {
   }
 }
 
-/* ================= HTTP CHECK ================= */
-async function detectHttp(domain) {
-  try {
-    let currentUrl = "http://" + domain;
-    let lastUrl = currentUrl;
-    let via = "-";
+/* ================= HTTP REDIRECT + TRAIL ================= */
+async function detectHttp(domain, maxHops = 6) {
+  let currentUrl = "http://" + domain;
+  let trail = [];
 
-    for (let i = 0; i < 5; i++) {
-      const res = await fetch(currentUrl, { redirect: "manual" });
-      const location = res.headers.get("location");
-      const server = res.headers.get("server") || "";
+  for (let i = 0; i < maxHops; i++) {
+    const res = await fetch(currentUrl, { redirect: "manual" });
+    const server = res.headers.get("server") || "";
+    const via = server.toLowerCase().includes("cloudflare")
+      ? "Cloudflare"
+      : "htaccess";
 
-      via = server.toLowerCase().includes("cloudflare")
-        ? "Cloudflare"
-        : "htaccess";
-
-      if (res.status >= 300 && res.status < 400 && location) {
-        const nextUrl = new URL(location, currentUrl).toString();
-        lastUrl = nextUrl;
-        currentUrl = nextUrl;
-        continue;
-      }
-
-      break;
-    }
-
-    const startHost = domain.replace(/^www\./, "");
-    const finalUrl = lastUrl;
-    const finalHost = new URL(finalUrl).hostname.replace(/^www\./, "");
-
-    // Same-domain cleanup → show only protocol + host
-    if (startHost === finalHost) {
-      return {
-        result: `${new URL(finalUrl).protocol}//${finalHost}`,
-        via
-      };
-    }
-
-    // Cross-domain → show FULL final URL (with path)
-    return {
-      result: `301 to ${finalUrl}`,
+    trail.push({
+      url: currentUrl,
+      status: res.status,
       via
-    };
-  } catch {
-    return { result: "-", via: "-" };
+    });
+
+    const location = res.headers.get("location");
+    if (res.status >= 300 && res.status < 400 && location) {
+      currentUrl = new URL(location, currentUrl).toString();
+      continue;
+    }
+    break;
   }
+
+  const firstHost = domain.replace(/^www\./, "");
+  const last = trail[trail.length - 1];
+  const finalUrl = last.url;
+  const finalHost = new URL(finalUrl).hostname.replace(/^www\./, "");
+
+  if (firstHost === finalHost) {
+    return {
+      result: `${new URL(finalUrl).protocol}//${finalHost}`,
+      via: last.via,
+      trail
+    };
+  }
+
+  return {
+    result: `301 to ${finalUrl}`,
+    via: last.via,
+    trail
+  };
 }
 
 /* ================= MAIN ================= */
@@ -156,6 +143,7 @@ export async function handler(event) {
         registrar: "Cloudflare, Inc.",
         http_result: http.result,
         http_via: http.via,
+        http_trail: http.trail,
         nameservers: "-"
       });
       continue;
@@ -181,6 +169,7 @@ export async function handler(event) {
       registrar: await getRegistrar(domain),
       http_result: http.result,
       http_via: http.via,
+      http_trail: http.trail,
       nameservers: nameservers.join(", ")
     });
   }
@@ -191,4 +180,3 @@ export async function handler(event) {
     body: JSON.stringify(results)
   };
 }
-
