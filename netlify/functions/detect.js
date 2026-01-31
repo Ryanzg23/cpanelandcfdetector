@@ -1,6 +1,7 @@
 import dns from "dns/promises";
 
 /* ================= DOMAIN NORMALIZER ================= */
+/* hostname only (for DNS / CF / registrar) */
 function normalizeDomain(input) {
   try {
     input = input.trim();
@@ -9,6 +10,16 @@ function normalizeDomain(input) {
   } catch {
     return input.split("/")[0].replace(/^www\./, "").toLowerCase();
   }
+}
+
+/* ================= URL NORMALIZER ================= */
+/* preserves path, query, hash (for HTTP detection) */
+function normalizeUrl(input) {
+  input = input.trim();
+  if (!input.startsWith("http://") && !input.startsWith("https://")) {
+    return "http://" + input;
+  }
+  return input;
 }
 
 /* ================= CSV PARSER ================= */
@@ -65,9 +76,10 @@ async function getRegistrar(domain) {
 }
 
 /* ================= HTTP / 301 DETECTION ================= */
-async function detectHttp(domain, maxHops = 6) {
+/* FULL PATH SAFE */
+async function detectHttp(inputUrl, maxHops = 6) {
   let trail = [];
-  let currentUrl = "http://" + domain;
+  let currentUrl = normalizeUrl(inputUrl);
 
   try {
     for (let i = 0; i < maxHops; i++) {
@@ -88,13 +100,12 @@ async function detectHttp(domain, maxHops = 6) {
         currentUrl = new URL(location, currentUrl).toString();
         continue;
       }
-
       break;
     }
 
     let finalUrl = currentUrl;
 
-    // ðŸ”‘ HTTPS preference check
+    /* HTTPS preference (preserves path) */
     if (finalUrl.startsWith("http://")) {
       try {
         const httpsUrl = finalUrl.replace(/^http:/, "https:");
@@ -112,22 +123,21 @@ async function detectHttp(domain, maxHops = 6) {
       } catch {}
     }
 
-    const startHost = domain.replace(/^www\./, "");
+    const startHost = new URL(normalizeUrl(inputUrl)).hostname.replace(/^www\./, "");
     const finalHost = new URL(finalUrl).hostname.replace(/^www\./, "");
 
-    // Same-domain â†’ show canonical protocol + host
     if (startHost === finalHost) {
+      const u = new URL(finalUrl);
       return {
-        result: `${new URL(finalUrl).protocol}//${finalHost}`,
-        via: trail[trail.length - 1]?.via || "-",
+        result: `${u.protocol}//${u.host}${u.pathname}${u.search}`,
+        via: trail.at(-1)?.via || "-",
         trail
       };
     }
 
-    // Cross-domain â†’ FULL URL
     return {
       result: `301 to ${finalUrl}`,
-      via: trail[trail.length - 1]?.via || "-",
+      via: trail.at(-1)?.via || "-",
       trail
     };
 
@@ -157,15 +167,14 @@ function inactiveResult(domain) {
 export async function handler(event) {
   try {
     const body = JSON.parse(event.body || "{}");
-    const domains = [...new Set(
-      (body.domains || []).map(normalizeDomain).filter(Boolean)
+
+    /* KEEP FULL INPUT (PATH SAFE) */
+    const inputs = [...new Set(
+      (body.domains || []).map(d => d.trim()).filter(Boolean)
     )];
 
-    if (!domains.length) {
-      return {
-        statusCode: 400,
-        body: "No domains provided"
-      };
+    if (!inputs.length) {
+      return { statusCode: 400, body: "No domains provided" };
     }
 
     /* ===== CSV SOURCES ===== */
@@ -189,15 +198,17 @@ export async function handler(event) {
 
     const results = [];
 
-    for (const domain of domains) {
+    for (const input of inputs) {
+      const hostname = normalizeDomain(input);
+
       try {
-        const http = await detectHttp(domain);
+        const http = await detectHttp(input);
 
         /* ===== pages.dev ===== */
-        if (domain.endsWith(".pages.dev")) {
+        if (hostname.endsWith(".pages.dev")) {
           results.push({
-            domain,
-            cloudflare: pagesMap[domain] || "Not listed",
+            domain: input,
+            cloudflare: pagesMap[hostname] || "Not listed",
             registrar: "Cloudflare, Inc.",
             http_result: http.result,
             http_via: http.via,
@@ -210,7 +221,7 @@ export async function handler(event) {
         /* ===== NS LOOKUP ===== */
         let nameservers = [];
         try {
-          nameservers = (await dns.resolveNs(domain))
+          nameservers = (await dns.resolveNs(hostname))
             .map(n => n.replace(/\.$/, "").toLowerCase());
         } catch {}
 
@@ -223,19 +234,17 @@ export async function handler(event) {
         }
 
         results.push({
-          domain,
+          domain: input,
           cloudflare,
-          registrar: await getRegistrar(domain),
+          registrar: await getRegistrar(hostname),
           http_result: http.result,
           http_via: http.via,
           http_trail: http.trail,
-          nameservers: nameservers.length
-            ? nameservers.join(", ")
-            : "-"
+          nameservers: nameservers.length ? nameservers.join(", ") : "-"
         });
 
       } catch {
-        results.push(inactiveResult(domain));
+        results.push(inactiveResult(input));
       }
     }
 
@@ -252,4 +261,3 @@ export async function handler(event) {
     };
   }
 }
-
