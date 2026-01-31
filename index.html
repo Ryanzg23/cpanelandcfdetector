@@ -162,12 +162,11 @@ tbody tr:hover {
     <thead>
       <tr>
         <th>Domain</th>
-        <th>Registrar</th>
         <th>Cloudflare</th>
+        <th>Registrar</th>
         <th>Nameservers</th>
       </tr>
     </thead>
-
     <tbody id="results"></tbody>
   </table>
 </div>
@@ -235,11 +234,11 @@ document.getElementById("run").onclick = async () => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${r.domain}</td>
-      <td>${r.registrar || "-"}</td>
+    
       <td>
         ${
           r.cloudflare === "Not listed"
-            ? `<span style="color:var(--muted)">Not listed</span>`
+            ? `<span style="opacity:.6">Not listed</span>`
             : r.cloudflare && r.cloudflare !== "-"
               ? `<div style="font-size:14px;font-weight:600;color:#22c55e">
                    ${r.cloudflare}
@@ -247,6 +246,9 @@ document.getElementById("run").onclick = async () => {
               : `<span style="opacity:.5">-</span>`
         }
       </td>
+    
+      <td>${r.registrar || "-"}</td>
+    
       <td>${r.nameservers || "-"}</td>
     `;
     tbody.appendChild(tr);
@@ -256,6 +258,7 @@ document.getElementById("run").onclick = async () => {
 
 </body>
 </html>
+
 
 
 
