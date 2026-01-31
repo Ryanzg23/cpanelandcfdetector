@@ -158,8 +158,16 @@ runBtn.onclick = async () => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${r.domain}</td>
-        <td>${r.ip}</td>
-        <td>${r.cpanel}</td>
+        <td>${r.ip || "-"}</td>
+      
+        <td>
+          ${
+            r.registrar && r.registrar !== "-"
+              ? `<div style="font-size:14px;font-weight:600">${r.registrar}</div>`
+              : `<span style="opacity:.5">-</span>`
+          }
+        </td>
+      
         <td>
           ${
             r.cloudflare_email && r.cloudflare_email !== "-"
@@ -169,6 +177,7 @@ runBtn.onclick = async () => {
               : `<span style="opacity:.5">-</span>`
           }
         </td>
+      
         <td>${r.nameservers || "-"}</td>
       `;
       resultsEl.appendChild(tr);
@@ -187,5 +196,6 @@ runBtn.onclick = async () => {
 
 </body>
 </html>
+
 
 
