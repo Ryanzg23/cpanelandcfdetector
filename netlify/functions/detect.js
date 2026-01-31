@@ -42,19 +42,28 @@ export async function handler(event) {
           nameservers = foundNS.join(", ");
 
           // Cloudflare match (exact 2 NS)
-          for (const row of cfList) {
-            const ns1 = row.NS1?.trim();
-            const ns2 = row.NS2?.trim();
-            if (
-              ns1 &&
-              ns2 &&
-              foundNS.includes(ns1) &&
-              foundNS.includes(ns2)
-            ) {
-              cloudflare = row["Cloudflare Email"] || "-";
-              break;
-            }
-          }
+         for (const row of cfList) {
+  // normalize row keys
+  const keys = Object.keys(row).reduce((acc, k) => {
+    acc[k.trim().toLowerCase()] = row[k];
+    return acc;
+  }, {});
+
+  const ns1 = keys.ns1?.trim().toLowerCase().replace(/\.$/, "");
+  const ns2 = keys.ns2?.trim().toLowerCase().replace(/\.$/, "");
+  const email = keys["cloudflare email"]?.trim();
+
+  if (
+    ns1 &&
+    ns2 &&
+    foundNS.some(ns => ns.toLowerCase() === ns1) &&
+    foundNS.some(ns => ns.toLowerCase() === ns2)
+  ) {
+    cloudflare = email || "-";
+    break;
+  }
+}
+
         }
       } catch {}
 
@@ -198,3 +207,4 @@ async function followRedirects(startUrl, maxHops = 10) {
 
   return { trail };
 }
+
