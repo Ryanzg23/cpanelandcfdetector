@@ -76,7 +76,55 @@ async function getRegistrar(domain) {
   }
 }
 
-/* ================= MAIN ================= */
+/* ================= HTTP / 301 DETECTION ================= */
+async function detectHttpRedirect(domain) {
+  try {
+    const res = await fetch("http://" + domain, {
+      redirect: "manual"
+    });
+
+    const status = res.status;
+    const location = res.headers.get("location");
+    const server = res.headers.get("server") || "";
+    const isCloudflare =
+      server.toLowerCase().includes("cloudflare") ||
+      res.headers.has("cf-ray");
+
+    if (status >= 300 && status < 400 && location) {
+      try {
+        const baseHost = domain.replace(/^www\./, "");
+        const targetUrl = new URL(location, "http://" + domain);
+        const targetHost = targetUrl.hostname.replace(/^www\./, "");
+
+        // Same domain, protocol / www cleanup
+        if (targetHost === baseHost) {
+          return {
+            value: `${targetUrl.protocol}//${targetHost}`,
+            source: isCloudflare ? "Cloudflare" : "Origin"
+          };
+        }
+
+        // Redirect to different domain
+        return {
+          value: `301 to ${targetUrl.protocol}//${targetHost}`,
+          source: isCloudflare ? "Cloudflare" : "Origin"
+        };
+      } catch {
+        return { value: "301", source: "-" };
+      }
+    }
+
+    // No redirect
+    return {
+      value: `https://${domain}`,
+      source: "-"
+    };
+  } catch {
+    return { value: "-", source: "-" };
+  }
+}
+
+/* ================= MAIN FUNCTION ================= */
 export async function handler(event) {
   try {
     const body = JSON.parse(event.body || "{}");
@@ -105,7 +153,7 @@ export async function handler(event) {
     const cfList = parseCSV(await cfRes.text());
     const pagesList = parseCSV(await pgRes.text());
 
-    /* ===== pages.dev MAP (AUTHORITATIVE) ===== */
+    /* ===== pages.dev MAP ===== */
     const pagesMap = {};
     for (const row of pagesList) {
       const d = normalizeDomain(row.Domain);
@@ -123,18 +171,23 @@ export async function handler(event) {
 
     for (const domain of domains) {
       let registrar = "-";
-      let cfValue = "-";
+      let cloudflare = "-";
       let nameservers = [];
+
+      /* ===== HTTP CHECK ===== */
+      const httpInfo = await detectHttpRedirect(domain);
 
       /* ===== pages.dev OVERRIDE ===== */
       if (domain.endsWith(".pages.dev")) {
         registrar = "Cloudflare, Inc.";
-        cfValue = pagesMap[domain] || "Not listed";
-      
+        cloudflare = pagesMap[domain] || "Not listed";
+
         results.push({
           domain,
+          cloudflare,
           registrar,
-          cloudflare: cfValue,
+          http_version: httpInfo.value,
+          http_source: httpInfo.source,
           nameservers: "-"
         });
         continue;
@@ -146,13 +199,13 @@ export async function handler(event) {
           .map(n => n.toLowerCase().replace(/\.$/, "").trim());
       } catch {}
 
-      /* ===== Cloudflare EMAIL via NS ===== */
+      /* ===== Cloudflare via NS ===== */
       for (const row of cfEntries) {
         if (
           nameservers.includes(row.ns1) &&
           nameservers.includes(row.ns2)
         ) {
-          cfValue = row.email;
+          cloudflare = row.email;
           break;
         }
       }
@@ -161,8 +214,10 @@ export async function handler(event) {
 
       results.push({
         domain,
+        cloudflare,
         registrar,
-        cloudflare: cfValue,
+        http_version: httpInfo.value,
+        http_source: httpInfo.source,
         nameservers: nameservers.join(", ")
       });
     }
@@ -179,4 +234,3 @@ export async function handler(event) {
     };
   }
 }
-
