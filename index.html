@@ -283,6 +283,25 @@ themeBtn.addEventListener("click", () => {
   setTheme(document.body.classList.contains("dark") ? "light" : "dark");
 });
 
+
+/* --- ----*/
+
+function copyNameservers(domain, nameservers) {
+  if (!nameservers) return;
+
+  const text =
+    domain + "\n" +
+    nameservers
+      .split(",")
+      .map(ns => ns.trim())
+      .join("\n");
+
+  navigator.clipboard.writeText(text).then(() => {
+    alert("Nameservers copied to clipboard");
+  });
+}
+
+  
 /* ---------- RUN DETECTION ---------- */
 document.getElementById("run").onclick = async () => {
   if (isRunning) return;              // 🔒 block double click
@@ -346,14 +365,15 @@ document.getElementById("run").onclick = async () => {
           ${r.http_result || "-"}
           ${
             r.http_trail && r.http_trail.length > 1
-              ? `<button
-                   style="margin-left:8px;font-size:12px"
-                   onclick="openTrail('trail_${i}')">
-                   View trail
-                 </button>`
+              ? `<a href="javascript:void(0)"
+                   onclick="openTrail('${id}')"
+                   style="margin-left:6px;font-size:12px;color:var(--accent);text-decoration:underline">
+                   (view trail)
+                 </a>`
               : ""
           }
         </td>
+
       
         <td>${r.http_via || "-"}</td>
       
@@ -362,9 +382,16 @@ document.getElementById("run").onclick = async () => {
         <td>
           ${
             r.nameservers
-              ? r.nameservers.split(",").map(ns => `
+              ? `
+                ${r.nameservers.split(",").map(ns => `
                   <div>${ns.trim()}</div>
-                `).join("")
+                `).join("")}
+                <a href="javascript:void(0)"
+                   onclick="copyNameservers('${r.domain}', '${r.nameservers}')"
+                   style="font-size:12px;color:var(--accent);text-decoration:underline">
+                  Copy
+                </a>
+              `
               : "-"
           }
         </td>
@@ -402,6 +429,7 @@ document.getElementById("run").onclick = async () => {
 
 </body>
 </html>
+
 
 
 
