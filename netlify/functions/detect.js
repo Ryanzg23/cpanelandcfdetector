@@ -74,33 +74,46 @@ async function getRegistrar(domain) {
 /* ================= HTTP CHECK ================= */
 async function detectHttp(domain) {
   try {
-    const res = await fetch("http://" + domain, { redirect: "manual" });
-    const location = res.headers.get("location");
-    const server = res.headers.get("server") || "";
+    let currentUrl = "http://" + domain;
+    let lastUrl = currentUrl;
+    let via = "-";
 
-    const via = server.toLowerCase().includes("cloudflare")
-      ? "Cloudflare"
-      : "htaccess";
+    for (let i = 0; i < 5; i++) {
+      const res = await fetch(currentUrl, { redirect: "manual" });
+      const location = res.headers.get("location");
+      const server = res.headers.get("server") || "";
 
-    if (res.status >= 300 && res.status < 400 && location) {
-      const target = new URL(location, "http://" + domain);
-      const base = domain.replace(/^www\./, "");
-      const targetHost = target.hostname.replace(/^www\./, "");
+      via = server.toLowerCase().includes("cloudflare")
+        ? "Cloudflare"
+        : "htaccess";
 
-      if (base === targetHost) {
-        return {
-          result: `${target.protocol}//${targetHost}`,
-          via
-        };
+      if (res.status >= 300 && res.status < 400 && location) {
+        const nextUrl = new URL(location, currentUrl).toString();
+        lastUrl = nextUrl;
+        currentUrl = nextUrl;
+        continue;
       }
 
+      break;
+    }
+
+    const startHost = domain.replace(/^www\./, "");
+    const finalUrl = lastUrl;
+    const finalHost = new URL(finalUrl).hostname.replace(/^www\./, "");
+
+    // Same-domain cleanup → show only protocol + host
+    if (startHost === finalHost) {
       return {
-        result: `301 to ${target.protocol}//${targetHost}`,
+        result: `${new URL(finalUrl).protocol}//${finalHost}`,
         via
       };
     }
 
-    return { result: `https://${domain}`, via: "-" };
+    // Cross-domain → show FULL final URL (with path)
+    return {
+      result: `301 to ${finalUrl}`,
+      via
+    };
   } catch {
     return { result: "-", via: "-" };
   }
@@ -178,3 +191,4 @@ export async function handler(event) {
     body: JSON.stringify(results)
   };
 }
+
