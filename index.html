@@ -243,7 +243,9 @@ tbody tr:hover {
 
 <script>
 let TRAILS = {};
+let isRunning = false;
 
+/* ---------- MODAL ---------- */
 function openTrail(id) {
   const trail = TRAILS[id];
   if (!trail) return;
@@ -263,51 +265,105 @@ function closeTrail() {
   document.getElementById("trailModal").style.display = "none";
 }
 
+/* ---------- RUN DETECTION ---------- */
 document.getElementById("run").onclick = async () => {
+  if (isRunning) return;              // 🔒 block double click
+  isRunning = true;
+
+  const runBtn = document.getElementById("run");
+  const textarea = document.getElementById("domains");
+  const tbody = document.getElementById("results");
+
+  runBtn.disabled = true;
+  runBtn.textContent = "Checking…";
+
   const domains = [...new Set(
-    document.getElementById("domains").value
+    textarea.value
       .split(/\s+/)
       .map(d => d.trim())
       .filter(Boolean)
   )];
 
-  const tbody = document.getElementById("results");
-  tbody.innerHTML = "";
+  // Clear previous results and show loading row
+  tbody.innerHTML = `
+    <tr>
+      <td colspan="6" style="opacity:.6">Checking…</td>
+    </tr>
+  `;
 
-  const res = await fetch("/.netlify/functions/detect", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ domains })
-  });
+  try {
+    const res = await fetch("/.netlify/functions/detect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domains })
+    });
 
-  const data = await res.json();
+    const data = await res.json();
 
-  data.forEach((r, i) => {
-    const id = "trail_" + i;
-    TRAILS[id] = r.http_trail || [];
+    // Reset table and trail cache
+    tbody.innerHTML = "";
+    TRAILS = {};
 
-    const hasTrail = r.http_trail && r.http_trail.length > 1;
+    data.forEach((r, i) => {
+      const id = "trail_" + i;
+      TRAILS[id] = r.http_trail || [];
 
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${r.domain}</td>
-      <td>${r.cloudflare || "-"}</td>
-      <td>${r.registrar || "-"}</td>
-      <td>
-        ${r.http_result}
-        ${hasTrail ? `<button onclick="openTrail('${id}')">View trail</button>` : ""}
-      </td>
-      <td>${r.http_via || "-"}</td>
-      <td>${r.nameservers || "-"}</td>
+      const hasTrail = r.http_trail && r.http_trail.length > 1;
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${r.domain}</td>
+        <td>${r.cloudflare || "-"}</td>
+        <td>${r.registrar || "-"}</td>
+        <td>
+          ${r.http_result || "-"}
+          ${
+            hasTrail
+              ? `<button
+                   style="margin-left:8px;font-size:12px"
+                   onclick="openTrail('${id}')">
+                   View trail
+                 </button>`
+              : ""
+          }
+        </td>
+        <td>${r.http_via || "-"}</td>
+        <td>${r.nameservers || "-"}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    // No results fallback
+    if (!data.length) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" style="opacity:.6">No results</td>
+        </tr>
+      `;
+    }
+
+  } catch (err) {
+    console.error(err);
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="color:red">
+          Detection failed. Please try again.
+        </td>
+      </tr>
     `;
-    tbody.appendChild(tr);
-  });
+  }
+
+  // 🔓 restore button state
+  runBtn.disabled = false;
+  runBtn.textContent = "Run Detection";
+  isRunning = false;
 };
 </script>
 
 
 </body>
 </html>
+
 
 
 
