@@ -32,7 +32,26 @@ body {
   padding: 20px;
   transition: background .2s, color .2s;
 }
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
 
+.theme-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.theme-btn:hover {
+  background: var(--border);
+}
 .container {
   max-width: 1200px;
   margin: auto;
@@ -49,12 +68,15 @@ body {
 textarea {
   width: 100%;
   min-height: 120px;
+  box-sizing: border-box;
   background: transparent;
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 10px;
+  resize: vertical;
 }
+
 
 button {
   background: var(--accent);
@@ -103,14 +125,13 @@ th {
 </head>
 
 <body>
-<div class="theme-toggle">
-  <span>🌞</span>
-  <input type="checkbox" id="themeToggle">
-  <span>🌙</span>
-</div>
 <div class="container">
 
-<h1>Bulk Domain Detector</h1>
+<div class="header">
+  <h1>Bulk Domain Detector</h1>
+  <button id="themeToggle" class="theme-btn">🌙 Dark</button>
+</div>
+
 
 <div class="card">
   <b>Domains (one per line)</b>
@@ -212,6 +233,7 @@ document.getElementById("run").onclick = async () => {
 
 </body>
 </html>
+
 
 
 
