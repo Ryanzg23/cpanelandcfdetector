@@ -6,52 +6,108 @@
 <title>Bulk Domain Detector</title>
 
 <style>
+:root {
+  --bg: #f5f7fb;
+  --card: #ffffff;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --accent: #2563eb;
+}
+
+body.dark {
+  --bg: #0f1220;
+  --card: #171a2e;
+  --text: #eaeaf0;
+  --muted: #9ca3af;
+  --border: #2a2f55;
+  --accent: #4f7cff;
+}
+
 body {
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
-  background: #0f1220;
-  color: #eaeaf0;
+  background: var(--bg);
+  color: var(--text);
+  margin: 0;
   padding: 20px;
+  transition: background .2s, color .2s;
 }
-.container { max-width: 1200px; margin: auto; }
+
+.container {
+  max-width: 1200px;
+  margin: auto;
+}
+
 .card {
-  background: #171a2e;
+  background: var(--card);
   border-radius: 10px;
   padding: 16px;
   margin-bottom: 16px;
+  border: 1px solid var(--border);
 }
+
 textarea {
   width: 100%;
   min-height: 120px;
-  background: #0f1220;
-  color: #eaeaf0;
-  border: 1px solid #2a2f55;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 10px;
 }
+
 button {
-  background: #4f7cff;
+  background: var(--accent);
   border: none;
-  color: #fff;
+  color: white;
   padding: 10px 16px;
   border-radius: 6px;
   cursor: pointer;
 }
+
 table {
   width: 100%;
   border-collapse: collapse;
   margin-top: 10px;
 }
+
 th, td {
-  border-bottom: 1px solid #2a2f55;
+  border-bottom: 1px solid var(--border);
   padding: 8px;
   font-size: 13px;
   vertical-align: top;
 }
-th { color: #9aa4ff; text-align: left; }
+
+th {
+  color: var(--muted);
+  text-align: left;
+}
+
+.theme-toggle {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.theme-toggle input {
+  width: 40px;
+  height: 20px;
+}
 </style>
+
 </head>
 
 <body>
+<div class="theme-toggle">
+  <span>🌞</span>
+  <input type="checkbox" id="themeToggle">
+  <span>🌙</span>
+</div>
 <div class="container">
 
 <h1>Bulk Domain Detector</h1>
@@ -84,7 +140,21 @@ th { color: #9aa4ff; text-align: left; }
 </div>
 
 <script>
-/* ---------- DOMAIN NORMALIZER (FRONTEND) ---------- */
+/* ---------- THEME TOGGLE ---------- */
+const toggle = document.getElementById("themeToggle");
+const savedTheme = localStorage.getItem("theme");
+
+if (savedTheme === "dark") {
+  document.body.classList.add("dark");
+  toggle.checked = true;
+}
+
+toggle.addEventListener("change", () => {
+  document.body.classList.toggle("dark", toggle.checked);
+  localStorage.setItem("theme", toggle.checked ? "dark" : "light");
+});
+
+/* ---------- DOMAIN NORMALIZER ---------- */
 function normalizeDomain(input) {
   try {
     input = input.trim();
@@ -124,11 +194,13 @@ document.getElementById("run").onclick = async () => {
       <td>${r.registrar || "-"}</td>
       <td>
         ${
-          r.cloudflare && r.cloudflare !== "-"
-            ? `<div style="font-size:14px;font-weight:600;color:#7dffb3">
-                 ${r.cloudflare}
-               </div>`
-            : `<span style="opacity:.5">-</span>`
+          r.cloudflare === "Not listed"
+            ? `<span style="color:var(--muted)">Not listed</span>`
+            : r.cloudflare && r.cloudflare !== "-"
+              ? `<div style="font-size:14px;font-weight:600;color:#22c55e">
+                   ${r.cloudflare}
+                 </div>`
+              : `<span style="opacity:.5">-</span>`
         }
       </td>
       <td>${r.nameservers || "-"}</td>
@@ -138,9 +210,9 @@ document.getElementById("run").onclick = async () => {
 };
 </script>
 
-
 </body>
 </html>
+
 
 
 
