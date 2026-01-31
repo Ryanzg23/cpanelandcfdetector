@@ -286,7 +286,7 @@ themeBtn.addEventListener("click", () => {
 
 /* --- ----*/
 
-function copyNameservers(domain, nameservers) {
+function copyNameservers(el, domain, nameservers, registrar) {
   if (!nameservers) return;
 
   const text =
@@ -294,10 +294,16 @@ function copyNameservers(domain, nameservers) {
     nameservers
       .split(",")
       .map(ns => ns.trim())
-      .join("\n");
+      .join("\n") +
+    "\nRegistrar: " + (registrar || "-");
 
   navigator.clipboard.writeText(text).then(() => {
-    alert("Nameservers copied to clipboard");
+    el.textContent = "Copied";
+    el.style.pointerEvents = "none";
+    setTimeout(() => {
+      el.textContent = "Copy";
+      el.style.pointerEvents = "auto";
+    }, 2000);
   });
 }
 
@@ -379,18 +385,33 @@ document.getElementById("run").onclick = async () => {
       
         <td>${r.registrar || "-"}</td>
       
-        <td>
+        <td style="position:relative">
           ${
-            r.nameservers
+            r.nameservers && r.nameservers !== "-"
               ? `
-                ${r.nameservers.split(",").map(ns => `
-                  <div>${ns.trim()}</div>
-                `).join("")}
                 <a href="javascript:void(0)"
-                   onclick="copyNameservers('${r.domain}', '${r.nameservers}')"
-                   style="font-size:12px;color:var(--accent);text-decoration:underline">
+                   style="
+                     position:absolute;
+                     top:6px;
+                     right:8px;
+                     font-size:12px;
+                     color:var(--accent);
+                     text-decoration:underline
+                   "
+                   onclick="copyNameservers(
+                     this,
+                     '${r.domain}',
+                     '${r.nameservers}',
+                     '${r.registrar || "-"}'
+                   )">
                   Copy
                 </a>
+        
+                <div style="padding-top:16px">
+                  ${r.nameservers.split(",").map(ns => `
+                    <div>${ns.trim()}</div>
+                  `).join("")}
+                </div>
               `
               : "-"
           }
@@ -429,6 +450,7 @@ document.getElementById("run").onclick = async () => {
 
 </body>
 </html>
+
 
 
 
