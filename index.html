@@ -120,6 +120,20 @@ th {
   width: 40px;
   height: 20px;
 }
+/* Zebra striping for table rows */
+tbody tr:nth-child(even) {
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
+body.dark tbody tr:nth-child(even) {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+/* Optional: subtle hover highlight */
+tbody tr:hover {
+  background-color: rgba(37, 99, 235, 0.08);
+}
+
 </style>
 
 </head>
@@ -242,6 +256,7 @@ document.getElementById("run").onclick = async () => {
 
 </body>
 </html>
+
 
 
 
