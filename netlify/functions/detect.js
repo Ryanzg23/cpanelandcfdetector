@@ -107,8 +107,28 @@ export async function handler(event) {
 
       /* ---------- A RECORD ---------- */
       try {
-        const a = await dns.resolve4(domain);
-        ip = a[0];
+        const aRecords = await dns.resolve4(domain);
+        const ips = aRecords.filter(ip => ip.includes("."));
+        ip = ips.join(", ");
+        
+        // Cloudflare IP detection
+        const isCloudflareIP = ips.some(ip =>
+          ip.startsWith("104.") ||
+          ip.startsWith("172.6") ||
+          ip.startsWith("188.114.")
+        );
+        
+        if (isCloudflareIP) {
+          cpanel = "Behind Cloudflare";
+        } else {
+          // Exact IP match (any IP)
+          for (const row of cpanelIPs) {
+            if (ips.includes(row.ip)) {
+              cpanel = row.name;
+              break;
+            }
+          }
+        }
 
         const isCloudflareIP =
           ip.startsWith("104.") ||
@@ -170,3 +190,4 @@ export async function handler(event) {
     return { statusCode: 500, body: err.toString() };
   }
 }
+
