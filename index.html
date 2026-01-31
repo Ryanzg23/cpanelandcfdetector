@@ -239,8 +239,8 @@ td.via-col {
 .badge-301 {
   background: #2563eb; /* blue */
   color: #ffffff;
-  cursor: help;
 }
+.badge-301-modal{ cursor: help; }
 
 .badge-200 {
   background: #16a34a; /* green */
@@ -443,7 +443,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <td>
             ${
               r.http_result?.startsWith("301 to")
-                ? `<span class="badge badge-301">301</span> ${r.http_result.replace(/^301\s+to\s+/i, "to ")}`
+                ? `<span class="badge badge-301 badge-301-modal">301</span> ${r.http_result.replace(/^301\s+to\s+/i, "to ")}`
                 : r.http_result?.startsWith("http")
                   ? `<span class="badge badge-200">200</span> ${r.http_result}`
                   : r.http_result || "-"
@@ -495,6 +495,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 </body>
 </html>
+
 
 
 
