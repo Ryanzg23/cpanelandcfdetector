@@ -189,6 +189,45 @@ tbody tr:hover {
 td {
   vertical-align: middle;
 }
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: #111827;
+  color: #fff;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .3s, transform .3s;
+  transform: translateY(10px);
+  z-index: 1000;
+}
+
+body.dark .toast {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+.action-link {
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.action-link:hover {
+  text-decoration: underline;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
 </style>
 
 </head>
@@ -242,7 +281,7 @@ td {
   </div>
 </div>
 
-
+<div id="toast" class="toast">Copied</div>
 <script>
 let TRAILS = {};
 let isRunning = false;
@@ -286,26 +325,26 @@ themeBtn.addEventListener("click", () => {
 
 /* --- ----*/
 
-function copyNameservers(el, domain, nameservers, registrar) {
+function showToast(text) {
+  const toast = document.getElementById("toast");
+  toast.textContent = text;
+  toast.classList.add("show");
+  setTimeout(() => toast.classList.remove("show"), 2000);
+}
+
+function copyNameservers(domain, nameservers, registrar) {
   if (!nameservers) return;
 
   const text =
     domain + "\n" +
-    nameservers
-      .split(",")
-      .map(ns => ns.trim())
-      .join("\n") +
+    nameservers.split(",").map(ns => ns.trim()).join("\n") +
     "\nRegistrar: " + (registrar || "-");
 
   navigator.clipboard.writeText(text).then(() => {
-    el.textContent = "Copied";
-    el.style.pointerEvents = "none";
-    setTimeout(() => {
-      el.textContent = "Copy";
-      el.style.pointerEvents = "auto";
-    }, 2000);
+    showToast("Nameservers copied");
   });
 }
+
 
   
 /* ---------- RUN DETECTION ---------- */
@@ -372,10 +411,11 @@ document.getElementById("run").onclick = async () => {
           ${
             r.http_trail && r.http_trail.length > 1
               ? `<a href="javascript:void(0)"
-                   onclick="openTrail('${id}')"
-                   style="margin-left:6px;font-size:12px;color:var(--accent);text-decoration:underline">
-                   (view trail)
-                 </a>`
+                     onclick="openTrail('${id}')"
+                     class="action-link">
+                    (view trail)
+                  </a>
+                  `
               : ""
           }
         </td>
@@ -389,33 +429,28 @@ document.getElementById("run").onclick = async () => {
           ${
             r.nameservers && r.nameservers !== "-"
               ? `
-                <a href="javascript:void(0)"
-                   style="
-                     position:absolute;
-                     top:6px;
-                     right:8px;
-                     font-size:12px;
-                     color:var(--accent);
-                     text-decoration:underline
-                   "
-                   onclick="copyNameservers(
-                     this,
-                     '${r.domain}',
-                     '${r.nameservers}',
-                     '${r.registrar || "-"}'
-                   )">
-                  Copy
-                </a>
+                <div style="position:absolute;top:6px;right:8px">
+                  <a href="javascript:void(0)"
+                     onclick="copyNameservers(
+                       '${r.domain}',
+                       '${r.nameservers}',
+                       '${r.registrar || "-"}'
+                     )"
+                     class="action-link">
+                    Copy
+                  </a>
+                </div>
         
                 <div style="padding-top:16px">
                   ${r.nameservers.split(",").map(ns => `
-                    <div>${ns.trim()}</div>
+                    <div class="mono">${ns.trim()}</div>
                   `).join("")}
                 </div>
               `
               : "-"
           }
         </td>
+
       `;
       tbody.appendChild(tr);
     });
@@ -450,6 +485,7 @@ document.getElementById("run").onclick = async () => {
 
 </body>
 </html>
+
 
 
 
