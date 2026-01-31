@@ -164,6 +164,7 @@ tbody tr:hover {
         <th>Domain</th>
         <th>Cloudflare</th>
         <th>Registrar</th>
+        <th>HTTP / 301</th>
         <th>Nameservers</th>
       </tr>
     </thead>
@@ -232,25 +233,35 @@ document.getElementById("run").onclick = async () => {
 
   for (const r of data) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${r.domain}</td>
-    
-      <td>
-        ${
-          r.cloudflare === "Not listed"
-            ? `<span style="opacity:.6">Not listed</span>`
-            : r.cloudflare && r.cloudflare !== "-"
-              ? `<div style="font-size:14px;font-weight:600;color:#22c55e">
-                   ${r.cloudflare}
-                 </div>`
-              : `<span style="opacity:.5">-</span>`
-        }
-      </td>
-    
-      <td>${r.registrar || "-"}</td>
-    
-      <td>${r.nameservers || "-"}</td>
-    `;
+      tr.innerHTML = `
+        <td>${r.domain}</td>
+      
+        <td>
+          ${
+            r.cloudflare === "Not listed"
+              ? `<span style="opacity:.6">Not listed</span>`
+              : r.cloudflare && r.cloudflare !== "-"
+                ? `<div style="font-weight:600;color:#22c55e">${r.cloudflare}</div>`
+                : `<span style="opacity:.5">-</span>`
+          }
+        </td>
+      
+        <td>${r.registrar || "-"}</td>
+      
+        <td>
+          <div style="font-size:13px">
+            ${r.http_version || "-"}
+            ${
+              r.http_source && r.http_source !== "-"
+                ? `<span style="opacity:.5"> (${r.http_source})</span>`
+                : ""
+            }
+          </div>
+        </td>
+      
+        <td>${r.nameservers || "-"}</td>
+      `;
+
     tbody.appendChild(tr);
   }
 };
@@ -258,6 +269,7 @@ document.getElementById("run").onclick = async () => {
 
 </body>
 </html>
+
 
 
 
