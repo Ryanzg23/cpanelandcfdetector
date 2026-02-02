@@ -251,7 +251,10 @@ td.via-col {
   background: #dc2626; /* red */
   color: #ffffff;
 }
-
+.badge-soft404 {
+  background: #f59e0b; /* orange */
+  color: #ffffff;
+}
 /* Trail table inside modal */
 .trail-table {
   width: 100%;
@@ -273,6 +276,7 @@ td.via-col {
 .trail-status {
   margin-left: 8px;
 }
+  
 </style>
 </head>
 
@@ -368,7 +372,13 @@ document.addEventListener("DOMContentLoaded", () => {
                       ? `<span class="badge badge-200">200</span>`
                       : step.status === 404
                         ? `<span class="badge badge-404">404</span>`
-                        : `<span class="badge">${step.status}</span>`
+                        : step.soft404
+                          ? `<span class="badge badge-soft404" title="Soft 404 detected">Soft 404</span>`
+                          : step.status === 301
+                            ? `<span class="badge badge-301 badge-301-modal" title="301 redirect">301</span>`
+                            : step.status === 200
+                              ? `<span class="badge badge-200">200</span>`
+                              : `<span class="badge">${step.status}</span>`
                 }
               </td>
             </tr>
@@ -442,11 +452,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
           <td>
             ${
-              r.http_result?.startsWith("301 to")
-                ? `<span class="badge badge-301">301</span> ${r.http_result.replace(/^301\s+to\s+/i, "to ")}`
-                : r.http_result?.startsWith("http")
-                  ? `<span class="badge badge-200">200</span> ${r.http_result}`
-                  : r.http_result || "-"
+              r.http_result === "Soft 404"
+                ? `<span class="badge badge-soft404" title="Server returned 200 but page appears missing">Soft 404</span>`
+                : r.http_result?.startsWith("301 to")
+                  ? `<span class="badge badge-301">301</span> ${r.http_result.replace(/^301\s+to\s+/i, "to ")}`
+                  : r.http_result?.startsWith("http")
+                    ? `<span class="badge badge-200">200</span> ${r.http_result}`
+                    : r.http_result || "-"
             }
             ${
               r.http_trail && r.http_trail.length > 1
@@ -495,6 +507,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 </body>
 </html>
+
 
 
 
