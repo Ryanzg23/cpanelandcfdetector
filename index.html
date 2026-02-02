@@ -157,6 +157,11 @@ td.via-col {
   min-width: 95px;
 }
 
+th.ns-col,
+td.ns-col {
+  min-width: 190px;
+}
+
 .action-link {
   font-size: 12px;
   color: var(--accent);
@@ -305,7 +310,7 @@ td.via-col {
         <th class="http-col">HTTP Result</th>
         <th class="via-col">301 via</th>
         <th>Registrar</th>
-        <th>Nameservers</th>
+        <th class="ns-col">Nameservers</th>
       </tr>
     </thead>
     <tbody id="results"></tbody>
@@ -495,3 +500,4 @@ document.addEventListener("DOMContentLoaded", () => {
 
 </body>
 </html>
+
