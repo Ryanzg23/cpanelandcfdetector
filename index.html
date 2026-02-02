@@ -294,12 +294,21 @@ td.ns-col {
   <textarea id="domains" placeholder="example.com"></textarea>
 </div>
 
-<div class="card" style="display:flex;align-items:center">
-  <button id="run">Run Detection</button>
-  <div class="progress-wrap" id="progressWrap">
-    <div class="progress-bar" id="progressBar"></div>
+<div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+
+  <div style="display:flex;align-items:center">
+    <button id="run">Run Detection</button>
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
   </div>
+
+  <button id="bulkOpen" style="background:#64748b">
+    Bulk Open Domains
+  </button>
+
 </div>
+
 
 <div class="card">
   <table>
@@ -346,6 +355,26 @@ document.addEventListener("DOMContentLoaded", () => {
   setTheme(localStorage.getItem("theme") || "light");
   themeBtn.onclick = () =>
     setTheme(document.body.classList.contains("dark") ? "light" : "dark");
+
+  /* ================= BULK OPEN DOMAINS ================= */
+const bulkOpenBtn = document.getElementById("bulkOpen");
+
+bulkOpenBtn.onclick = () => {
+  const domains = [...new Set(
+    textarea.value.split(/\s+/).map(d => d.trim()).filter(Boolean)
+  )];
+
+  if (!domains.length) return;
+
+  domains.forEach(d => {
+    const url = d.startsWith("http://") || d.startsWith("https://")
+      ? d
+      : "https://" + d;
+
+    window.open(url, "_blank");
+  });
+};
+
 
   /* ================= MODAL ================= */
   window.openTrail = function (id) {
@@ -500,4 +529,5 @@ document.addEventListener("DOMContentLoaded", () => {
 
 </body>
 </html>
+
 
