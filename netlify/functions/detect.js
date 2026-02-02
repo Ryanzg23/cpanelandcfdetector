@@ -104,8 +104,9 @@ async function detectHttp(inputUrl, maxHops = 6) {
     }
 
     let finalUrl = currentUrl;
+    let finalStatus = trail.at(-1)?.status || 0;
 
-    // HTTPS preference (preserves path)
+    /* HTTPS preference */
     if (finalUrl.startsWith("http://")) {
       try {
         const httpsUrl = finalUrl.replace(/^http:/, "https:");
@@ -119,12 +120,42 @@ async function detectHttp(inputUrl, maxHops = 6) {
               : "htaccess"
           });
           finalUrl = httpsUrl;
+          finalStatus = httpsRes.status;
         }
+      } catch {}
+    }
+
+    /* ===== SOFT 404 DETECTION ===== */
+    let isSoft404 = false;
+
+    if (finalStatus === 200) {
+      try {
+        const res = await fetch(finalUrl);
+        const html = (await res.text()).toLowerCase();
+
+        const soft404Signals = [
+          "page not found",
+          "404",
+          "not available",
+          "doesn't exist",
+          "sorry"
+        ];
+
+        isSoft404 = soft404Signals.some(s => html.includes(s));
       } catch {}
     }
 
     const startHost = new URL(normalizeUrl(inputUrl)).hostname.replace(/^www\./, "");
     const finalHost = new URL(finalUrl).hostname.replace(/^www\./, "");
+
+    if (isSoft404) {
+      return {
+        result: "Soft 404",
+        via: trail.at(-1)?.via || "-",
+        trail,
+        soft404: true
+      };
+    }
 
     if (startHost === finalHost) {
       const u = new URL(finalUrl);
@@ -273,3 +304,4 @@ export async function handler(event) {
     };
   }
 }
+
