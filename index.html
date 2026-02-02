@@ -57,6 +57,7 @@ button {
   padding: 10px 16px;
   border-radius: 8px;
   cursor: pointer;
+  transition: background-color .2s ease, filter .2s ease, transform .05s ease;
 }
 
 button:hover:not(:disabled) {
@@ -67,6 +68,21 @@ button:disabled {
   opacity: .6;
   cursor: not-allowed;
 }
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* Green action button */
+.btn-green {
+  background: #16a34a; /* green */
+  color: #ffffff;
+}
+
+.btn-green:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+
 
 .card {
   background: var(--card);
@@ -529,5 +545,6 @@ bulkOpenBtn.onclick = () => {
 
 </body>
 </html>
+
 
 
