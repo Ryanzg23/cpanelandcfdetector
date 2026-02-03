@@ -166,22 +166,28 @@ function inactiveResult(input) {
 /* ================= PARALLEL RUNNER ================= */
 async function runWithConcurrency(items, limit, worker) {
   const results = [];
-  const queue = [...items];
+  const queue = items.map((item, index) => ({ item, index }));
 
   const runners = Array.from({ length: limit }, async () => {
     while (queue.length) {
-      const item = queue.shift();
+      const { item, index } = queue.shift();
       try {
-        results.push(await worker(item));
+        const result = await worker(item);
+        results.push({ index, result });
       } catch {
-        results.push(inactiveResult(item));
+        results.push({ index, result: inactiveResult(item) });
       }
     }
   });
 
   await Promise.all(runners);
-  return results;
+
+  // 🔑 Restore original order
+  return results
+    .sort((a, b) => a.index - b.index)
+    .map(r => r.result);
 }
+
 
 /* ================= MAIN HANDLER ================= */
 export async function handler(event) {
@@ -273,4 +279,5 @@ export async function handler(event) {
     };
   }
 }
+
 
