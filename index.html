@@ -294,6 +294,41 @@ td.ns-col {
 .trail-status {
   margin-left: 8px;
 }
+/* Header tool links */
+.tool-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: #ffffff;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  transition: filter .2s ease, transform .05s ease;
+}
+
+.tool-link:hover {
+  filter: brightness(.92);
+}
+
+.tool-link:active {
+  transform: translateY(1px);
+}
+
+/* Tool colors */
+.tool-amp {
+  background: #455a64;
+}
+
+.tool-robots {
+  background: #0080A0;
+}
+
+.tool-cf {
+  background: #f6821f;
+}
+
 </style>
 </head>
 
@@ -302,8 +337,41 @@ td.ns-col {
 
 <header>
   <h1>Bulk Domain Detector</h1>
-  <button id="themeToggle">🌙 Dark</button>
+
+  <div style="display:flex;align-items:center;gap:8px">
+
+    <a
+      href="https://majormaintenancestarterpack.netlify.app/bulkamptester"
+      target="_blank"
+      class="tool-link tool-amp"
+      title="Bulk AMP Tester"
+    >
+      ⚡ Bulk AMP
+    </a>
+
+    <a
+      href="https://bulkrobots-sitemap.netlify.app/"
+      target="_blank"
+      class="tool-link tool-robots"
+      title="Bulk Robots & Sitemap"
+    >
+      🤖 Bulk Robots & Sitemap
+    </a>
+
+    <a
+      href="https://cpanelandcfdetector.netlify.app/"
+      target="_blank"
+      class="tool-link tool-cf"
+      title="Bulk Cloudflare Detector"
+    >
+      ☁️ Bulk CF Detector
+    </a>
+
+    <button id="themeToggle">🌙 Dark</button>
+
+  </div>
 </header>
+
 
 <div class="card">
   <label><strong>Domains (one per line)</strong></label>
@@ -546,6 +614,7 @@ bulkOpenBtn.onclick = () => {
 
 </body>
 </html>
+
 
 
 
