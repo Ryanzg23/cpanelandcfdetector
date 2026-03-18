@@ -83,7 +83,16 @@ async function detectHttp(inputUrl, maxHops = 6) {
 
   try {
     for (let i = 0; i < maxHops; i++) {
-      const res = await fetch(currentUrl, { redirect: "manual" });
+      const res = await fetch(currentUrl, {
+          redirect: "manual",
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Bulk SEO Meta Viewer)",
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "en-US,en;q=0.9"
+          }
+        });
+
+      
       const server = res.headers.get("server") || "";
       const via = server.toLowerCase().includes("cloudflare")
         ? "Cloudflare"
